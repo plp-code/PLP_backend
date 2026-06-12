@@ -8,11 +8,15 @@ from app.schemas.map import MapResponse
 class UserBase(BaseModel):
     email: EmailStr
     is_active: bool = True
+    first_name: str
+    last_name: str
 
 class UserCreate(UserBase):
     password: str 
 
 class UserUpdate(BaseModel):
+    first_name: str | None = None
+    last_name: str | None = None
     email: EmailStr | None = None
     password: str | None = None
     is_active: bool | None = None

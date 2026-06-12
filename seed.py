@@ -22,6 +22,8 @@ def seed_database():
         print("Seeding database...")
 
         mock_user = User(
+            first_name="Test",
+            last_name="Buyer",
             email="test_buyer@example.com",
             hashed_password=get_password_hash("fake_hashed_password_12345"), 
             is_active=True,
@@ -29,6 +31,8 @@ def seed_database():
         )
 
         mock_user2 = User(
+            first_name="Jae",
+            last_name="Seo",
             email="jaeyseo0922@gmail.com",
             hashed_password=get_password_hash("testing123"),
             is_active=True,
