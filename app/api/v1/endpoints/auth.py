@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from app.api import deps
@@ -41,6 +41,7 @@ def change_password(
 
 @router.post("/login", response_model=dict)
 def login_user(
+    response: Response,
     db: Session = Depends(deps.get_db),
     form_data: OAuth2PasswordRequestForm = Depends()
 ):
@@ -59,14 +60,25 @@ def login_user(
         )
     
     access_token =  create_access_token(data={"sub": str(user.id)})
-    
-    return {
-        "access_token": access_token, 
-        "token_type": "bearer"
-    }
 
-@router.post("/logout", response_model=dict)
-def logout_user():
-    return {
-        "message": "Logout successful."
-    }
+    response.set_cookie(
+        key="auth_token",
+        value=access_token,
+        httponly=True, 
+        max_age=1800,  
+        expires=1800,
+        samesite="lax",
+        secure=False,  
+    )
+
+    return {"message": "Successfully logged in"}
+
+@router.post("/logout")
+def logout(response: Response):
+    response.delete_cookie(
+        key="auth_token",
+        httponly=True,
+        samesite="lax",
+        secure=False, 
+    )
+    return {"message": "Successfully logged out"}
