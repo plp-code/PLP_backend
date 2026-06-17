@@ -5,6 +5,11 @@ from typing import List
 
 from app.schemas.map import MapResponse 
 
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+    remember_me: bool = False
+
 class UserBase(BaseModel):
     email: EmailStr
     is_active: bool = True

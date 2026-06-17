@@ -65,6 +65,9 @@ def decode_token(token: str, expected_type: str) -> dict:
     """
     Generalized token decoder that checks for token type (access or refresh).
     """
+    if token.startswith("Bearer "):
+        token = token.split(" ")[1]
+        
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         
