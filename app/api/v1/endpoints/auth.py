@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Response
+from datetime import timedelta
+
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Cookie
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from app.api import deps
-from app.core.security import create_access_token, get_password_hash, verify_password
+from app.core.security import create_access_token, create_refresh_token, get_password_hash, verify_password, decode_token
 
 from app.schemas.user import UserChangePassword, UserCreate, UserResponse
 from app.services.user import UserService
@@ -80,26 +82,54 @@ def login_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    access_token =  create_access_token(data={"sub": str(user.id)})
+    access_token = create_access_token(data={"sub": user.id}, expires_delta=timedelta(minutes=30))    
+    refresh_token = create_refresh_token(data={"sub": user.id}, expires_delta=timedelta(days=7))
 
     response.set_cookie(
-        key="auth_token",
-        value=access_token,
-        httponly=True, 
-        max_age=1800,  
-        expires=1800,
+        key="access_token",
+        value=f"Bearer {access_token}",
+        httponly=True,
+        max_age=15 * 60, 
         samesite="lax",
-        secure=True,  
+        secure=True,
     )
+        
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        max_age=7 * 24 * 60 * 60, 
+        path="/api/auth/refresh", 
+        samesite="lax",
+        secure=True,
+    )
+    
+    return {"message": "Logged in"}
 
-    return {"message": "Successfully logged in"}
+@router.post("/refresh")
+def refresh_session(response: Response, refresh_token: str = Cookie(None)):
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="Refresh token missing")
+
+    user_id = decode_token(refresh_token) 
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+    new_access_token = create_access_token(data={"sub": user_id}, expires_delta=timedelta(minutes=15))
+
+    response.set_cookie(
+        key="access_token",
+        value=f"Bearer {new_access_token}",
+        httponly=True,
+        max_age=15 * 60,
+        samesite="lax",
+        secure=True,
+    )
+    return {"message": "Token refreshed"}
 
 @router.post("/logout")
 def logout(response: Response):
-    response.delete_cookie(
-        key="auth_token",
-        httponly=True,
-        samesite="lax",
-        secure=True, 
-    )
-    return {"message": "Successfully logged out"}
+    response.delete_cookie(key="access_token")
+    response.delete_cookie(key="refresh_token", path="/api/auth/refresh")
+    
+    return {"message": "Logged out"}
