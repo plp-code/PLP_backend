@@ -10,10 +10,12 @@ class UserService:
         return db.query(User).filter(User.email == email).first()
 
     @staticmethod
-    def create(db: Session, obj_in: UserCreate, hashed_password: str) -> User:
+    def create(db: Session, user: UserCreate, hashed_password: str) -> User:
         """Register a brand new user into the database."""
         db_obj = User(
-            email=obj_in.email,
+            email=user.email,
+            first_name=user.first_name,
+            last_name=user.last_name,
             hashed_password=hashed_password,
             has_purchased_map=False  
         )
@@ -31,3 +33,7 @@ class UserService:
         db.refresh(user)
         return user
     
+    @staticmethod
+    def get_profile_with_maps(db: Session, user_id: int) -> User | None:
+        """Fetches a user along with their purchased maps for profile display."""
+        return db.query(User).filter(User.id == user_id).first()

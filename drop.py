@@ -1,6 +1,6 @@
 
 from app.core.database import SessionLocal
-from app.db.models import User, Map, UserMapAccess
+from app.db.models import Store, User, Map, UserMapAccess
 from app.core.security import get_password_hash
 
 def drop_database():
@@ -12,6 +12,7 @@ def drop_database():
         db.query(UserMapAccess).delete()
         db.query(Map).delete()
         db.query(User).delete()
+        db.query(Store).delete()
         db.commit()
 
     except Exception as e:

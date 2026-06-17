@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime
+import enum
+from sqlalchemy import JSON, Column, Enum, Float, Integer, String, Boolean, ForeignKey, DateTime, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -28,8 +29,7 @@ class User(Base):
 
 class Map(Base):
     """
-    Map Catalog table.
-    Stores the metadata and secure embed strings for your curated maps.
+    Stores the metadata and secure embed strings for the curated maps.
     """
     __tablename__ = "maps"
 
@@ -37,12 +37,17 @@ class Map(Base):
     title = Column(String, nullable=False)
     slug = Column(String, unique=True, index=True, nullable=False)
     description = Column(String, nullable=True)
+    region = Column(String, nullable=True)
+    map_price = Column(Integer, nullable=False)  # Price in cents for precision
     
-    google_embed_url = Column(String, nullable=False) 
-    
+     
+    # later to add filtering
+        
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
     shared_with_users = relationship("UserMapAccess", back_populates="map")
+    stores = relationship("Store", back_populates="map", cascade="all, delete-orphan")
 
 
 class UserMapAccess(Base):
@@ -57,7 +62,49 @@ class UserMapAccess(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     map_id = Column(Integer, ForeignKey("maps.id", ondelete="CASCADE"), nullable=False)
     
+    initial_latitude = Column(Float, nullable=True)
+    initial_longitude = Column(Float, nullable=True)
+
     purchased_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="purchased_maps")
     map = relationship("Map", back_populates="shared_with_users")
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'map_id', name='_user_map_purchase_uc'),
+    )
+
+
+class PriceLevel(str, enum.Enum):
+    INEXPENSIVE = "inexpensive"
+    MODERATE = "moderate"
+    EXPENSIVE = "expensive"
+
+
+class Store(Base):
+    """
+    Detailed store information linked to a specific map.
+    """
+    __tablename__ = "stores"
+
+    id = Column(Integer, primary_key=True, index=True)
+    map_id = Column(Integer, ForeignKey("maps.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    store_name = Column(String, nullable=False)
+    address = Column(String, nullable=False)
+    
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+    
+    hours = Column(JSON, nullable=True) 
+    price_range = Column(String, nullable=True) 
+    price_level = Column(Enum(PriceLevel), nullable=True)
+    notes = Column(Text, nullable=True)       
+    price_notes = Column(Text, nullable=True)
+    # is_featured = Column(Boolean, default=False, nullable=False)
+    
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    map = relationship("Map", back_populates="stores")

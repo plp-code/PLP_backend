@@ -10,15 +10,36 @@ from app.services.user import UserService
 router = APIRouter()
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def register_user(user_in: UserCreate, db: Session = Depends(deps.get_db)):
-    """Registers a new user. Checks for duplicate emails and hashes the password before saving."""
+def register_user(
+    user_in: UserCreate, 
+    response: Response,
+    db: Session = Depends(deps.get_db)
+):
+    """
+    Registers a new user, auto-logs them in by setting a secure JWT cookie, 
+    and returns the user profile.
+    """
     user = UserService.get_by_email(db, email=user_in.email)
     if user:
         raise HTTPException(status_code=400, detail="Email already registered")
     
     hashed_password = get_password_hash(user_in.password)
     
-    new_user = UserService.create(db, user_in=user_in, hashed_password=hashed_password)
+    new_user = UserService.create(db, user=user_in, hashed_password=hashed_password)
+    
+    
+    access_token = create_access_token(data={"sub": str(new_user.id)})
+
+    response.set_cookie(
+        key="auth_token",
+        value=access_token,
+        httponly=True, 
+        max_age=1800,  
+        expires=1800,
+        samesite="lax",
+        secure=False, # true for production  
+    )
+
     return new_user
 
 @router.put("/change-password", response_model=UserResponse)
@@ -68,7 +89,7 @@ def login_user(
         max_age=1800,  
         expires=1800,
         samesite="lax",
-        secure=False,  
+        secure=True,  
     )
 
     return {"message": "Successfully logged in"}
@@ -79,6 +100,6 @@ def logout(response: Response):
         key="auth_token",
         httponly=True,
         samesite="lax",
-        secure=False, 
+        secure=True, 
     )
     return {"message": "Successfully logged out"}
