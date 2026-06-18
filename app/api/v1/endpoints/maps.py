@@ -10,7 +10,7 @@ from app.schemas.map import MapResponse
 router = APIRouter()
 
 
-@router.get("", response_model=List[MapResponse])
+@router.get("/", response_model=List[MapResponse])
 def get_maps(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
@@ -30,7 +30,21 @@ def get_maps(
         query = query.filter(Map.title.ilike(f"%{search}%"))
 
     results = query.all()
-    return [{**m.__dict__, "has_access": has_access} for m, has_access in results]
+    
+    final_results = []
+    for m, has_access in results:
+        map_data = {
+            "id": m.id,
+            "title": m.title,
+            "slug": m.slug,
+            "description": m.description,
+            "region": m.region,
+            "map_price": m.map_price,
+            "has_access": has_access
+        }
+        final_results.append(map_data)
+        
+    return final_results
 
 @router.get("/{map_slug}/stores/minimal", response_model=List[StoreMinimalResponse])
 def get_map_pins(

@@ -1,8 +1,10 @@
+import os
+
 import bcrypt
 import jwt
 from datetime import datetime, timedelta, timezone
 from app.core.config import settings
-from fastapi import HTTPException, status
+from fastapi import HTTPException, Response, status
 
 def get_password_hash(password: str) -> str:
     """
@@ -89,3 +91,16 @@ def decode_token(token: str, expected_type: str) -> dict:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token"
         )
+        
+def set_auth_cookie(response: Response, key: str, value: str, max_age: int = 15 * 60, path: str = "/"):
+    is_prod = os.getenv("ENVIRONMENT") == "production"
+    
+    response.set_cookie(
+        key=key,
+        value=value,
+        httponly=True, 
+        samesite="none" if is_prod else "lax",
+        secure=is_prod,
+        path=path,
+        max_age=max_age
+    )

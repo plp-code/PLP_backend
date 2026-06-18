@@ -5,19 +5,12 @@ from app.core.config import settings
 
 
 app = FastAPI(title="PLP Backend API", version="1.0.0")
-
-origins = [
-    "http://localhost:3000",
-    "https://theprelovedprofessional.com",
- 
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,       
-    allow_credentials=True,      
-    allow_methods=["*"],         
-    allow_headers=["*"],         
+    allow_origins=[settings.FRONTEND_URL],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)

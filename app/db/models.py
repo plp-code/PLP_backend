@@ -38,11 +38,9 @@ class Map(Base):
     slug = Column(String, unique=True, index=True, nullable=False)
     description = Column(String, nullable=True)
     region = Column(String, nullable=True)
-    map_price = Column(Integer, nullable=False)  # Price in cents for precision
-    
+    map_price = Column(Integer, nullable=False)  # Price in cents for precision    
      
-    # later to add filtering
-        
+    # later to add filtering        
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

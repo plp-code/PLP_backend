@@ -66,7 +66,6 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
         raise he
         
     except Exception as e:
-        print(f"DEBUG AUTH ERROR: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials"

@@ -4,6 +4,8 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     
     DATABASE_URL: str
+    ENVIRONMENT: str = "development"
+    FRONTEND_URL: str = "http://localhost:3000"
     
     SECRET_KEY: str = "fallback_secret_key_for_emergencies" 
     ALGORITHM: str = "HS256"
