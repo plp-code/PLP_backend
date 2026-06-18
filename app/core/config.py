@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     
     SECRET_KEY: str = "fallback_secret_key_for_emergencies" 
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     
     STRIPE_SECRET_KEY: str | None = None
     STRIPE_WEBHOOK_SECRET: str | None = None

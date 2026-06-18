@@ -99,8 +99,9 @@ def set_auth_cookie(response: Response, key: str, value: str, max_age: int = 15 
         key=key,
         value=value,
         httponly=True, 
-        samesite="none" if is_prod else "lax",
+        samesite="lax",
         secure=is_prod,
         path=path,
         max_age=max_age
     )
+    

@@ -33,7 +33,7 @@ def register_user(
     refresh_token = create_refresh_token(data={"sub": str(new_user.id)}, expires_delta=timedelta(days=7))
 
     set_auth_cookie(response, "access_token", f"Bearer {access_token}")
-    set_auth_cookie(response, "refresh_token", f"Bearer {refresh_token}", 7*24*60*60, "/api/auth/refresh")
+    set_auth_cookie(response, "refresh_token", f"Bearer {refresh_token}", 7*24*60*60, "/api/v1/auth/refresh")
         
     return {"message": "User registered successfully"}
 
@@ -78,7 +78,7 @@ def login_user(
     refresh_token = create_refresh_token(data={"sub": str(user.id)}, expires_delta=timedelta(days=7))
     
     set_auth_cookie(response, "access_token", f"Bearer {access_token}")
-    set_auth_cookie(response, "refresh_token", f"Bearer {refresh_token}", 7*24*60*60, "/api/auth/refresh")
+    set_auth_cookie(response, "refresh_token", f"Bearer {refresh_token}", 7*24*60*60, "/api/v1/auth/refresh")
     
     return {"message": "Logged in"}
 
@@ -90,14 +90,21 @@ def refresh_session(response: Response, refresh_token: str = Cookie(None)):
     if not refresh_token:
         raise HTTPException(status_code=401, detail="Refresh token missing")
 
-    user_id = decode_token(refresh_token, expected_type="refresh")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    payload = decode_token(refresh_token, expected_type="refresh")
+    
+    user_id_string = payload.get("sub")
+    
+    if not user_id_string:
+        raise HTTPException(status_code=401, detail="Invalid refresh token payload")
 
-    new_access_token = create_access_token(data={"sub": user_id}, expires_delta=timedelta(minutes=15))
+    new_access_token = create_access_token(
+        data={"sub": str(user_id_string)}, 
+        expires_delta=timedelta(minutes=15)
+    )
 
     set_auth_cookie(response, "access_token", f"Bearer {new_access_token}")
     return {"message": "Token refreshed"}
+
 
 @router.post("/logout")
 def logout(response: Response):
@@ -106,6 +113,6 @@ def logout(response: Response):
     """
     
     response.delete_cookie(key="access_token")
-    response.delete_cookie(key="refresh_token", path="/api/auth/refresh")
+    response.delete_cookie(key="refresh_token", path="/api/v1/auth/refresh")
     
     return {"message": "Logged out"}
