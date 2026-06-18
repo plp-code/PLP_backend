@@ -54,6 +54,8 @@ def create_checkout_session(
         )
         
         return {"url": checkout_session.url}
+    except HTTPException:
+        raise
         
     except stripe.error.StripeError as e:
         raise HTTPException(status_code=400, detail=str(e.user_message))
@@ -93,7 +95,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(deps.get_db)):
         
         if user_id and map_id:            
             UserService.grant_user_map_access(db, int(user_id), int(map_id))
-            print(f"✅ Successfully unlocked Map {map_id} for User {user_id}")
+            print(f"Successfully unlocked Map {map_id} for User {user_id}")
 
         
     return {"status": "success"}

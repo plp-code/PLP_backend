@@ -1,5 +1,5 @@
 import enum
-from sqlalchemy import JSON, Column, Enum, Float, Integer, String, Boolean, ForeignKey, DateTime, Text, UniqueConstraint
+from sqlalchemy import JSON, Column, Enum, Float, Integer, String, Boolean, ForeignKey, DateTime, Text, UniqueConstraint, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -57,8 +57,8 @@ class UserMapAccess(Base):
     __tablename__ = "user_map_access"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    map_id = Column(Integer, ForeignKey("maps.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    map_id = Column(Integer, ForeignKey("maps.id", ondelete="CASCADE"), nullable=False, index=True)
     
     initial_latitude = Column(Float, nullable=True)
     initial_longitude = Column(Float, nullable=True)
@@ -70,6 +70,7 @@ class UserMapAccess(Base):
 
     __table_args__ = (
         UniqueConstraint('user_id', 'map_id', name='_user_map_purchase_uc'),
+        Index("ix_user_map_access_map_user", "map_id", "user_id"),
     )
 
 
@@ -84,6 +85,9 @@ class Store(Base):
     Detailed store information linked to a specific map.
     """
     __tablename__ = "stores"
+    __table_args__ = (
+        Index("ix_stores_map_id_id", "map_id", "id"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     map_id = Column(Integer, ForeignKey("maps.id", ondelete="CASCADE"), nullable=False, index=True)

@@ -1,6 +1,5 @@
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import literal
+from typing import List
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.api.deps import get_db, get_current_user, get_current_user_optional
 from app.db.models import Map, UserMapAccess, Store, User
@@ -16,17 +15,22 @@ def get_maps(
     current_user = Depends(get_current_user_optional)
 ):
     maps = db.query(Map).all()
-    current_user_id = current_user.id if current_user else None 
-    
+
+    if not current_user:
+        for map_item in maps:
+            map_item.has_access = False
+        return maps
+
     user_access_ids = {
-        access.map_id for access in db.query(UserMapAccess.map_id)
-        .filter(UserMapAccess.user_id == current_user_id)
+        access.map_id
+        for access in db.query(UserMapAccess.map_id)
+        .filter(UserMapAccess.user_id == current_user.id)
         .all()
     }
-    
+
     for map_item in maps:
         map_item.has_access = map_item.id in user_access_ids
-        
+
     return maps
 
 @router.get("/{map_slug}/stores/minimal", response_model=List[StoreMinimalResponse])
@@ -49,8 +53,8 @@ def get_map_pins(
 @router.get("/{map_slug}/stores", response_model=List[StoreResponse])
 def get_stores_paginated(
     map_slug: str, 
-    page: int = 1, 
-    limit: int = 5, 
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=25, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):

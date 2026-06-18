@@ -15,9 +15,22 @@ env/
 
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
+
+.mypy_cache/
+.ruff_cache/
+.nox/
+.tox/
+.ipynb_checkpoints/
+
+dist/
+build/
+*.egg-info/
 
 *.sqlite
 *.sqlite3
 *.db
 *.log
+
+test_api.db
