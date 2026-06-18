@@ -12,39 +12,22 @@ router = APIRouter()
 
 @router.get("/", response_model=List[MapResponse])
 def get_maps(
-    db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user_optional),
-    search: str = None
+    db: Session = Depends(get_db), 
+    current_user = Depends(get_current_user_optional)
 ):
-    if not current_user:
-        query = db.query(Map, literal(False).label("has_access"))
-    else:
-
-        has_access_subquery = db.query(UserMapAccess.id).filter(
-            UserMapAccess.map_id == Map.id,
-            UserMapAccess.user_id == current_user.id
-        ).exists()
-        query = db.query(Map, has_access_subquery.label("has_access"))
-
-    if search:
-        query = query.filter(Map.title.ilike(f"%{search}%"))
-
-    results = query.all()
+    maps = db.query(Map).all()
+    current_user_id = current_user.id if current_user else None 
     
-    final_results = []
-    for m, has_access in results:
-        map_data = {
-            "id": m.id,
-            "title": m.title,
-            "slug": m.slug,
-            "description": m.description,
-            "region": m.region,
-            "map_price": m.map_price,
-            "has_access": has_access
-        }
-        final_results.append(map_data)
+    user_access_ids = {
+        access.map_id for access in db.query(UserMapAccess.map_id)
+        .filter(UserMapAccess.user_id == current_user_id)
+        .all()
+    }
+    
+    for map_item in maps:
+        map_item.has_access = map_item.id in user_access_ids
         
-    return final_results
+    return maps
 
 @router.get("/{map_slug}/stores/minimal", response_model=List[StoreMinimalResponse])
 def get_map_pins(

@@ -37,3 +37,11 @@ class UserService:
     def get_profile_with_maps(db: Session, user_id: int) -> User | None:
         """Fetches a user along with their purchased maps for profile display."""
         return db.query(User).filter(User.id == user_id).first()
+
+    @staticmethod
+    def grant_user_map_access(db: Session, user_id: int, map_id: int):
+        """Grants a user access to a specific map after purchase."""
+        from app.db.models import UserMapAccess
+        access_record = UserMapAccess(user_id=user_id, map_id=map_id)
+        db.add(access_record)
+        db.commit()
