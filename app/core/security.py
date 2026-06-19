@@ -101,6 +101,7 @@ def set_auth_cookie(response: Response, key: str, value: str, max_age: int = 15 
         httponly=True, 
         samesite="none" if is_prod else "lax", 
         secure=is_prod, 
+        domain=".theprelovedprofessional.com",
         path=path,
         max_age=max_age
     )
