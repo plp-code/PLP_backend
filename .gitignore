@@ -34,3 +34,4 @@ build/
 *.log
 
 test_api.db
+dump.rdb
