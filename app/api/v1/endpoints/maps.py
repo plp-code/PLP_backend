@@ -9,7 +9,7 @@ from app.schemas.map import MapResponse
 router = APIRouter()
 
 
-@router.get("/", response_model=List[MapResponse])
+@router.get("", response_model=List[MapResponse])
 def get_maps(
     db: Session = Depends(get_db), 
     current_user = Depends(get_current_user_optional)
