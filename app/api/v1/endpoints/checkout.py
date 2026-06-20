@@ -49,7 +49,7 @@ def create_checkout_session(
                 "user_id": str(current_user.id),
                 "map_id": str(map_item.id)
             },
-            success_url=f"{settings.FRONTEND_URL}/maps?success=true&session_id={{CHECKOUT_SESSION_ID}}",
+            success_url=f"{settings.FRONTEND_URL}/maps?success=true&map={map_item.title}&session_id={{CHECKOUT_SESSION_ID}}",
             cancel_url=f"{settings.FRONTEND_URL}/maps?canceled=true",
         )
         
@@ -92,6 +92,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(deps.get_db)):
         
         user_id = metadata['user_id']
         map_id = metadata['map_id']
+        
         
         if user_id and map_id:            
             UserService.grant_user_map_access(db, int(user_id), int(map_id))
