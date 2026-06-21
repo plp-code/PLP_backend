@@ -1,5 +1,6 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.python.app.models.location import Location
 from src.python.app.models.location_hours import LocationHours
@@ -7,12 +8,30 @@ from src.python.app.schemas.location import LocationHoursCreate
 
 
 async def get_location_by_id(db: AsyncSession, location_id: int) -> Location | None:
-    result = await db.execute(select(Location).where(Location.id == location_id))
+    result = await db.execute(
+        select(Location)
+        .where(Location.id == location_id)
+        .options(selectinload(Location.hours))
+    )
     return result.scalar_one_or_none()
 
 
-async def get_locations_by_map(db: AsyncSession, map_id: int) -> list[Location]:
+async def get_by_map(db: AsyncSession, map_id: int) -> list[Location]:
     result = await db.execute(select(Location).where(Location.map_id == map_id))
+    return list(result.scalars().all())
+
+
+async def get_by_map_paginated(
+    db: AsyncSession, map_id: int, offset: int, limit: int
+) -> list[Location]:
+    result = await db.execute(
+        select(Location)
+        .where(Location.map_id == map_id)
+        .options(selectinload(Location.hours))  # eager-load so LocationRead can serialize hours
+        .order_by(Location.id)
+        .offset(offset)
+        .limit(limit)
+    )
     return list(result.scalars().all())
 
 

@@ -28,7 +28,7 @@ async def get_current_user(
         )
 
     try:
-        payload = decode_access_token(token, expected_type="access")
+        payload = decode_access_token(token)
         user_id = int(payload.get("sub"))
 
         user = await db.get(User, user_id)
