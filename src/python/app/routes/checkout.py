@@ -13,6 +13,15 @@ router = APIRouter()
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
+
+def _field(obj, key, default=None):
+    """Safe accessor for Stripe objects/dicts.
+
+    stripe>=8 StripeObject is not a dict subclass and has no .get(), but it does
+    support `in` and `[]`. This works for both StripeObject and plain dicts.
+    """
+    return obj[key] if obj is not None and key in obj else default
+
 @router.post("/create-session")
 async def create_checkout_session(
     map_slug: str,
@@ -28,7 +37,7 @@ async def create_checkout_session(
         if await crud.purchases.user_owns_map(db, current_user.id, map_.id):
             raise HTTPException(status_code=400, detail="Map already purchased")
         
-        price_in_cents = int(map_.map_price * 100)
+        price_in_cents = map_.price
         checkout_session = stripe.checkout.Session.create(
             payment_method_types=['card'],
             customer_email=current_user.email,
@@ -37,8 +46,8 @@ async def create_checkout_session(
                     'price_data': {
                         'currency': 'usd',
                         'product_data': {
-                            'name': map_.title,
-                            'description': map_.description or f'Lifetime access to {map_.title}',
+                            'name': map_.name,
+                            'description': map_.description or f'Lifetime access to {map_.name}',
                         },
                         'unit_amount': price_in_cents,
                     },
@@ -50,7 +59,7 @@ async def create_checkout_session(
                 "user_id": str(current_user.id),
                 "map_id": str(map_.id)
             },
-            success_url=f"{settings.FRONTEND_URL}/maps?success=true&map={map_.title}&session_id={{CHECKOUT_SESSION_ID}}",
+            success_url=f"{settings.FRONTEND_URL}/maps?success=true&map={map_.name}&session_id={{CHECKOUT_SESSION_ID}}",
             cancel_url=f"{settings.FRONTEND_URL}/maps?canceled=true",
         )
 
@@ -81,9 +90,9 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)) -
 
     event_type = event["type"]
     session_obj = event["data"]["object"]
-    metadata = session_obj.get("metadata", {})
-    user_id = metadata.get("user_id")
-    map_id = metadata.get("map_id")
+    metadata = _field(session_obj, "metadata", {})
+    user_id = _field(metadata, "user_id")
+    map_id = _field(metadata, "map_id")
 
     if event_type in {
         "checkout.session.completed",
@@ -104,10 +113,10 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)) -
             user_id=int(user_id),
             map_id=int(map_id),
             stripe_checkout_session_id=session_obj["id"],
-            stripe_payment_intent_id=session_obj.get("payment_intent"),
-            stripe_customer_id=session_obj.get("customer"),
-            amount=session_obj.get("amount_total", 0),
-            currency=session_obj.get("currency", "usd"),
+            stripe_payment_intent_id=_field(session_obj, "payment_intent"),
+            stripe_customer_id=_field(session_obj, "customer"),
+            amount=_field(session_obj, "amount_total", 0),
+            currency=_field(session_obj, "currency", "usd"),
             status=status_map[event_type],
         )
 
@@ -122,8 +131,8 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)) -
         return {"status": status_map[event_type]}
 
     elif event_type == "charge.refunded":
-        payment_intent_id = session_obj.get("payment_intent")
-        invoice = await crud.invoices.get_by_payment_intent(db, payment_intent_id)
+        payment_intent_id = _field(session_obj, "payment_intent")
+        invoice = await crud.invoices.get_invoice_by_payment_intent_id(db, payment_intent_id)
 
         if not invoice: 
             return {"status": "ignored", "reason": "invoice not found"}

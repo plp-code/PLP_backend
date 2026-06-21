@@ -26,3 +26,8 @@ async def create_purchase(db: AsyncSession, user_id: int, map_id: int, invoice_i
 async def user_owns_map(db: AsyncSession, user_id: int, map_id: int) -> bool:
     result = await get_purchase(db, user_id, map_id)
     return result is not None
+
+
+async def get_by_invoice_id(db: AsyncSession, invoice_id: int) -> Purchase | None:
+    result = await db.execute(select(Purchase).where(Purchase.invoice_id == invoice_id))
+    return result.scalar_one_or_none()

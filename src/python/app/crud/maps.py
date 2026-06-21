@@ -10,6 +10,12 @@ async def get_map_by_id(db: AsyncSession, map_id: int) -> Map | None:
     return result.scalar_one_or_none()
 
 
+async def get_map_by_slug(db: AsyncSession, slug: str) -> Map | None:
+    """Look up a map by slug regardless of ownership (used for checkout)."""
+    result = await db.execute(select(Map).where(Map.slug == slug))
+    return result.scalar_one_or_none()
+
+
 async def get_owned_map_by_slug(
     db: AsyncSession, slug: str, user_id: int,
 ) -> Map | None:

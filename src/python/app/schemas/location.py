@@ -31,6 +31,7 @@ class LocationHoursRead(LocationHoursBase):
 class LocationMinimalRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    id: int
     name: str = Field(..., min_length=1, max_length=255)
     latitude: float = Field(..., ge=-90, le=90)
     longitude: float = Field(..., ge=-180, le=180)
