@@ -9,7 +9,10 @@ from src.python.app.core.rate_limit import RedisRateLimitMiddleware
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await get_redis_client()
+    try:
+        await get_redis_client()
+    except Exception:
+        print("Redis not available — rate limiting disabled")
     yield
     await close_redis_client()
 

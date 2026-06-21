@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Time
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -15,11 +15,15 @@ class Location(Base):
     longitude = Column(Float, nullable=False)
     min_price = Column(Integer, nullable=True)
     max_price = Column(Integer, nullable=True)
-    open_time = Column(Time, nullable=True)
-    close_time = Column(Time, nullable=True)
     price_level = Column(Integer, nullable=True)
     description = Column(String(1024), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     map = relationship("Map", back_populates="locations")
+    hours = relationship(
+        "LocationHours",
+        back_populates="location",
+        cascade="all, delete-orphan",
+        order_by="LocationHours.day_of_week",
+    )

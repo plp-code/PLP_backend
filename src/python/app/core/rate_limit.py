@@ -18,6 +18,11 @@ class RedisRateLimitMiddleware(BaseHTTPMiddleware):
         if request.url.path in {"/docs", "/redoc", "/openapi.json"}:
             return await call_next(request)
 
+        try:
+            redis_client = await get_redis_client()
+        except Exception:
+            return await call_next(request) 
+
         redis_client = await get_redis_client()
 
         forwarded_for = request.headers.get("x-forwarded-for")

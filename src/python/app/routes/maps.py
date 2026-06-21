@@ -5,7 +5,7 @@ from src.python.app import crud
 from src.python.app.core.database import get_db
 from src.python.app.core.dependencies import get_current_user, get_current_user_optional
 from src.python.app.models import User
-from src.python.app.schemas.map import MapRead, MapListRead, MapWithLocations
+from src.python.app.schemas.map import MapListResponse, MapSummary
 from src.python.app.schemas.location import LocationMinimalRead, LocationRead
 from src.python.app.models.map import Map
 
@@ -22,7 +22,7 @@ async def get_owned_map(
     return map_
 
 
-@router.get("", response_model=MapListRead)
+@router.get("", response_model=MapListResponse)
 async def list_maps(
     search: str | None = Query(default=None, max_length=255),
     page: int = Query(default=1, ge=1),
@@ -40,7 +40,7 @@ async def list_maps(
         owned = {purchase.map_id for purchase in await crud.purchases.get_purchases_by_user(db, current_user.id)}
 
     items = [
-        MapRead(
+        MapSummary(
             id=m.id,
             name=m.name,
             slug=m.slug,
@@ -52,9 +52,9 @@ async def list_maps(
         for m in maps
     ]
 
-    return MapListRead(
+    return MapListResponse(
         maps=items,
-        total_maps=total,
+        total=total,
         page=page,
         limit=limit,
         has_more=(page * limit) < total,

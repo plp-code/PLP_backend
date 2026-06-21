@@ -11,6 +11,8 @@ from src.python.app.schemas.invoice import (
 )
 from src.python.app.schemas.location import (
     LocationCreate,
+    LocationHoursCreate,
+    LocationHoursRead,
     LocationRead,
     LocationUpdate,
 )
@@ -18,7 +20,9 @@ from src.python.app.schemas.map import (
     MapCreate,
     MapRead,
     MapUpdate,
-    MapWithLocations,
+    MapDetail,
+    MapListResponse,
+    MapSummary,
 )
 from src.python.app.schemas.purchase import (
     PurchaseCreate,
@@ -43,12 +47,16 @@ __all__ = [
     "InvoiceRead",
     "InvoiceUpdate",
     "LocationCreate",
+    "LocationHoursCreate",
+    "LocationHoursRead",
     "LocationRead",
     "LocationUpdate",
     "MapCreate",
     "MapRead",
     "MapUpdate",
-    "MapWithLocations",
+    "MapDetail",
+    "MapListResponse",
+    "MapSummary",
     "PurchaseCreate",
     "PurchaseRead",
     "TokenCreate",

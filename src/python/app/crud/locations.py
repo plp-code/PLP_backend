@@ -1,9 +1,9 @@
-from datetime import time
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.python.app.models.location import Location
+from src.python.app.models.location_hours import LocationHours
+from src.python.app.schemas.location import LocationHoursCreate
 
 
 async def get_location_by_id(db: AsyncSession, location_id: int) -> Location | None:
@@ -24,10 +24,9 @@ async def create_location(
     longitude: float,
     min_price: int | None = None,
     max_price: int | None = None,
-    open_time: time | None = None,
-    close_time: time | None = None,
     price_level: int | None = None,
     description: str | None = None,
+    hours: list[LocationHoursCreate] | None = None,
 ) -> Location:
     location = Location(
         map_id=map_id,
@@ -36,10 +35,17 @@ async def create_location(
         longitude=longitude,
         min_price=min_price,
         max_price=max_price,
-        open_time=open_time,
-        close_time=close_time,
         price_level=price_level,
         description=description,
+        hours=[
+            LocationHours(
+                day_of_week=h.day_of_week,
+                open_time=h.open_time,
+                close_time=h.close_time,
+                is_closed=h.is_closed,
+            )
+            for h in (hours or [])
+        ],
     )
     db.add(location)
     await db.flush()

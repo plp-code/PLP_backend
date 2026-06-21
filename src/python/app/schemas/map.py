@@ -26,25 +26,34 @@ class MapUpdate(BaseModel):
     is_active: bool | None = None
 
 
+class MapSummary(MapBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    is_purchased: bool = False
+
+
+class MapListResponse(BaseModel):
+    maps: list[MapSummary]
+    total: int
+    page: int
+    limit: int
+    has_more: bool
+
+
 class MapRead(MapBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     is_active: bool
-    is_purchased: bool = False
     created_at: datetime
     updated_at: datetime
 
 
-class MapListRead(MapRead):
-    maps: list[MapRead] = []
-    total_maps: int = 0
-    page: int
-    limit: int
-    has_more: bool
-    
+class MapDetail(MapBase):
+    model_config = ConfigDict(from_attributes=True)
 
-class MapWithLocations(MapRead):
+    id: int
+    is_purchased: bool = True
     locations: list[LocationRead] = []
     total_locations: int = 0
-    
