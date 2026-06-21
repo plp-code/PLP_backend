@@ -2,7 +2,7 @@ from sqlalchemy import Boolean, Column, DateTime, Integer, String
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
-from app.core.database import Base
+from src.python.app.core.database import Base
 
 
 class User(Base):
@@ -18,5 +18,5 @@ class User(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     tokens = relationship("Token", back_populates="user", cascade="all, delete-orphan")
-    transactions = relationship("Transaction", back_populates="user")
+    invoices = relationship("Invoice", back_populates="user")
     purchases = relationship("Purchase", back_populates="user")

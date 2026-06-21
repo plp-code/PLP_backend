@@ -3,7 +3,7 @@ from datetime import time
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.location import Location
+from src.python.app.models.location import Location
 
 
 async def get_location_by_id(db: AsyncSession, location_id: int) -> Location | None:
@@ -27,6 +27,7 @@ async def create_location(
     open_time: time | None = None,
     close_time: time | None = None,
     price_level: int | None = None,
+    description: str | None = None,
 ) -> Location:
     location = Location(
         map_id=map_id,
@@ -38,6 +39,7 @@ async def create_location(
         open_time=open_time,
         close_time=close_time,
         price_level=price_level,
+        description=description,
     )
     db.add(location)
     await db.flush()

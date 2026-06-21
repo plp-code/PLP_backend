@@ -1,9 +1,11 @@
-from datetime import datetime, timedelta, timezone
-
+import os
 import jwt
+
+from datetime import datetime, timedelta, timezone
+from fastapi import Response
 from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
 
-from app.core.config import settings
+from src.python.app.core.config import settings
 
 
 def create_access_token(user_id: int) -> str:
@@ -21,7 +23,7 @@ def create_refresh_token(user_id: int) -> str:
         "type": "refresh",
         "exp": datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
     }
-    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM), payload["exp"]
 
 
 def decode_access_token(token: str) -> dict:
@@ -42,3 +44,23 @@ def decode_refresh_token(token: str) -> dict:
         return payload
     except (ExpiredSignatureError, InvalidTokenError):
         raise
+    
+    
+def set_auth_cookie(
+    response: Response, 
+    key: str, 
+    value: str, 
+    max_age: int = 15 * 60, 
+    path: str = "/",
+) -> None:
+    is_prod = os.getenv("ENVIRONMENT") == "production"
+    
+    response.set_cookie(
+        key=key,
+        value=value,
+        httponly=True,
+        secure=is_prod,
+        samesite="lax",
+        max_age=max_age,
+        path=path,
+    )

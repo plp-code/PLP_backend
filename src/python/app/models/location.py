@@ -2,7 +2,7 @@ from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Tim
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
-from app.core.database import Base
+from src.python.app.core.database import Base
 
 
 class Location(Base):
@@ -18,6 +18,7 @@ class Location(Base):
     open_time = Column(Time, nullable=True)
     close_time = Column(Time, nullable=True)
     price_level = Column(Integer, nullable=True)
+    description = Column(String(1024), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

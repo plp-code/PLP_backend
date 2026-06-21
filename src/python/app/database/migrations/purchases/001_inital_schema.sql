@@ -1,12 +1,12 @@
-create table purchases (
-    id int auto_increment primary key,
-    user_id int not null,
-    map_id int not null,
-    transaction_id int not null,
-    purchased_at timestamp default current_timestamp,
-    unique (user_id, map_id),
-    foreign key (user_id) references users(id) on delete cascade,
-    foreign key (map_id) references maps(id) on delete cascade,
-    foreign key (transaction_id) references transactions(id),
-    index idx_purchase_user_id (user_id)
+CREATE TABLE purchases (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    map_id INT NOT NULL,
+    invoice_id INT NOT NULL,
+    purchased_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (map_id) REFERENCES maps(id) ON DELETE CASCADE,
+    FOREIGN KEY (invoice_id) REFERENCES invoices(id),
+    UNIQUE KEY uq_user_map_purchase (user_id, map_id),
+    INDEX idx_purchases_user_id (user_id)
 );

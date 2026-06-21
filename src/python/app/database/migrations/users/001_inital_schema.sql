@@ -1,11 +1,11 @@
-create table users (
-    id int auto_increment primary key,
-    email varchar(255) not null unique,
-    first_name varchar(255) not null,
-    last_name varchar(255) not null,
-    hashed_password varchar(255) not null,
-    is_active bool default true,
-    created_at timestamp default current_timestamp,
-    updated_at timestamp default current_timestamp on update current_timestamp,
-    index idx_user_email (email)
+CREATE TABLE users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    first_name VARCHAR(255) NOT NULL,
+    last_name VARCHAR(255) NOT NULL,
+    hashed_password VARCHAR(255) NOT NULL,
+    is_active BOOL DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_users_email (email)
 );

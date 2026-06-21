@@ -3,11 +3,29 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    API_V1_STR: str = "/api/v1"
+
     # Database
     DATABASE_URL: str
+    DB_POOL_SIZE: int = 10
+    DB_MAX_OVERFLOW: int = 20
+    DB_POOL_TIMEOUT: int = 30
+    DB_POOL_RECYCLE_SECONDS: int = 1800
+    DB_SSL_REQUIRED: bool = False
+    
+    
+    # Redis
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_DB: int = 0
+    REDIS_TIMEOUT: int = 5
+    
+    # Rate Limiting
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_REQUESTS_PER_MINUTE: int = 120
 
     # JWT
-    SECRET_KEY: str
+    SECRET_KEY: str = "fallback_secret_key_for_emergencies" 
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
@@ -18,6 +36,7 @@ class Settings(BaseSettings):
 
     # App
     ENVIRONMENT: str = "development"
+    FRONTEND_URL: str = "http://localhost:3000"
 
     @field_validator("SECRET_KEY")
     @classmethod
