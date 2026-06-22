@@ -8,7 +8,7 @@ from src.python.app.core.database import Base
 class LocationHours(Base):
     __tablename__ = "location_hours"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)  # PRIMARY already indexes this; no extra index needed
     location_id = Column(
         Integer, ForeignKey("locations.id", ondelete="CASCADE"), nullable=False, index=True
     )

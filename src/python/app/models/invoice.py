@@ -8,11 +8,11 @@ from src.python.app.core.database import Base
 class Invoice(Base):
     __tablename__ = "invoices"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)  # PRIMARY already indexes this; no extra index needed
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     map_id = Column(Integer, ForeignKey("maps.id", ondelete="CASCADE"), nullable=False)
-    stripe_checkout_session_id = Column(String(255), unique=True, nullable=False, index=True)
-    stripe_payment_intent_id = Column(String(255), unique=True, nullable=True, index=True)
+    stripe_checkout_session_id = Column(String(255), unique=True, nullable=False)  # unique already creates an index
+    stripe_payment_intent_id = Column(String(255), unique=True, nullable=True)  # unique already creates an index
     stripe_customer_id = Column(String(255), nullable=True)
     amount = Column(Integer, nullable=False)  # in cents
     currency = Column(String(10), nullable=False, default="usd")

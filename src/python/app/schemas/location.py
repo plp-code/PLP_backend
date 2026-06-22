@@ -2,6 +2,8 @@ from datetime import datetime, time
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.python.app.models.enums import PriceLevel
+
 
 class LocationHoursBase(BaseModel):
     day_of_week: int = Field(..., ge=0, le=6, description="0 = Monday ... 6 = Sunday")
@@ -43,7 +45,7 @@ class LocationBase(BaseModel):
     longitude: float = Field(..., ge=-180, le=180)
     min_price: int | None = Field(default=None, ge=0)
     max_price: int | None = Field(default=None, ge=0)
-    price_level: int | None = Field(default=None, ge=0)
+    price_level: PriceLevel | None = None
     description: str | None = Field(default=None, max_length=1024)
 
 
@@ -58,7 +60,7 @@ class LocationUpdate(BaseModel):
     longitude: float | None = Field(default=None, ge=-180, le=180)
     min_price: int | None = Field(default=None, ge=0)
     max_price: int | None = Field(default=None, ge=0)
-    price_level: int | None = Field(default=None, ge=0)
+    price_level: PriceLevel | None = None
     description: str | None = Field(default=None, max_length=1024)
     hours: list[LocationHoursCreate] | None = None
 

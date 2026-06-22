@@ -1,5 +1,3 @@
-from datetime import datetime, timedelta
-
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,7 +6,6 @@ from src.python.app.core.database import get_db
 from src.python.app.core.jwt import (
     create_access_token,
     create_refresh_token,
-    decode_refresh_token,
     set_auth_cookie,
 )
 from src.python.app.core.security import hash_password, verify_password
@@ -74,8 +71,8 @@ async def refresh(
     if not stored:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
-    await crud.tokens.revoke_token(db, token)
-    await _set_session_cookies(response, db, stored.user_id)
+    access_token = create_access_token(stored.user_id)
+    set_auth_cookie(response, "access_token", f"Bearer {access_token}")
 
     return {"message": "Token refreshed"}
 
@@ -113,7 +110,7 @@ async def logout_all(
     response.delete_cookie("refresh_token", path="/api/v1/auth/refresh")
     return {"message": "Logged out from all devices"}
 
-
+# not using preset refresh token that's alreadyy set? instead, creating a new one and setting it in the cookie?
 async def _set_session_cookies(response: Response, db: AsyncSession, user_id: int) -> None:
     access_token = create_access_token(user_id)
     refresh_token, expires_at = create_refresh_token(user_id)
