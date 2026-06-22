@@ -9,6 +9,10 @@ from src.python.app.core.config import settings
 from src.python.app.core.dependencies import get_current_user
 from src.python.app.models import User
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
@@ -73,6 +77,7 @@ async def create_checkout_session(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+
 @router.post("/webhook")
 async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
     """Handle Stripe webhook events."""
@@ -84,8 +89,10 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)) -
             payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
         )
     except ValueError:
+        logger.warning("Webhook received with invalid payload")
         raise HTTPException(status_code=400, detail="Invalid payload")
     except stripe.error.SignatureVerificationError:
+        logger.warning("Webhook received with invalid signature")
         raise HTTPException(status_code=400, detail="Invalid signature")
 
     event_type = event["type"]
@@ -94,13 +101,22 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)) -
     user_id = _field(metadata, "user_id")
     map_id = _field(metadata, "map_id")
 
+    logger.info(f"Webhook received: {event_type} | user={user_id} map={map_id}")
+
     if event_type in {
         "checkout.session.completed",
         "checkout.session.expired",
         "checkout.session.async_payment_failed",
     }:
         if not user_id or not map_id:
+            logger.warning(f"Webhook missing metadata: {event_type}")
             return {"status": "ignored", "reason": "missing metadata"}
+
+        # Idempotency check
+        existing = await crud.invoices.get_by_session_id(db, session_obj["id"])
+        if existing:
+            logger.info(f"Duplicate webhook ignored: {session_obj['id']}")
+            return {"status": "already_processed"}
 
         status_map = {
             "checkout.session.completed": "paid",
@@ -120,6 +136,8 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)) -
             status=status_map[event_type],
         )
 
+        logger.info(f"Invoice created: id={invoice.id} status={status_map[event_type]}")
+
         if event_type == "checkout.session.completed":
             await crud.purchases.create_purchase(
                 db,
@@ -127,22 +145,28 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)) -
                 map_id=int(map_id),
                 invoice_id=invoice.id,
             )
+            logger.info(f"Purchase granted: user={user_id} map={map_id}")
 
         return {"status": status_map[event_type]}
 
-    elif event_type == "charge.refunded":
-        payment_intent_id = _field(session_obj, "payment_intent")
-        invoice = await crud.invoices.get_invoice_by_payment_intent_id(db, payment_intent_id)
+    elif event_type == "refund.created":
+        refund_obj = event["data"]["object"]
+        payment_intent_id = _field(refund_obj, "payment_intent")
+        
+        invoice = await crud.invoices.get_by_payment_intent_id(db, payment_intent_id)
 
-        if not invoice: 
+        if not invoice:
+            logger.warning(f"Refund webhook: invoice not found for {payment_intent_id}")
             return {"status": "ignored", "reason": "invoice not found"}
 
         invoice.status = "refunded"
         purchase = await crud.purchases.get_by_invoice_id(db, invoice.id)
-        
+
         if purchase:
             await db.delete(purchase)
+            logger.info(f"Purchase revoked: user={invoice.user_id} map={invoice.map_id}")
 
         return {"status": "refunded"}
 
+    logger.info(f"Unhandled event type: {event_type}")
     return {"status": "ignored", "reason": "unhandled event"}

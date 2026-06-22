@@ -9,6 +9,19 @@ async def get_invoice_by_id(db: AsyncSession, invoice_id: int) -> Invoice | None
     return result.scalar_one_or_none()
 
 
+async def get_by_session_id(db: AsyncSession, session_id: str) -> Invoice | None:
+    result = await db.execute(
+        select(Invoice).where(Invoice.stripe_checkout_session_id == session_id)
+    )
+    return result.scalar_one_or_none()
+
+async def get_by_payment_intent_id(db: AsyncSession, payment_intent_id: str) -> Invoice | None:
+    result = await db.execute(
+        select(Invoice).where(Invoice.stripe_payment_intent_id == payment_intent_id)
+    )
+    return result.scalar_one_or_none()
+
+
 async def get_invoice_by_checkout_session_id(
     db: AsyncSession, stripe_checkout_session_id: str
 ) -> Invoice | None:
