@@ -86,3 +86,25 @@ async def get_locations_paginated(
     offset = (page - 1) * limit
     locations = await crud.locations.get_by_map_paginated(db, map_.id, offset, limit)
     return [LocationRead.model_validate(loc) for loc in locations]
+
+
+# get google_place id and add to each store
+# @router.put("/{slug}/locations/google-place-ids")
+# async def update_google_place_ids(
+#     slug: str,
+#     db: AsyncSession = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     """Update Google Place IDs for locations in a map the user owns."""
+#     map_ = await get_owned_map(slug, db, current_user)
+#     locations = await crud.locations.get_by_map(db, map_.id)
+
+#     for location in locations:
+#         if not location.google_place_id:
+#             google_place_id = await crud.locations.fetch_google_place_id(location)
+#             if google_place_id:
+#                 location.google_place_id = google_place_id
+#                 db.add(location)
+
+#     await db.commit()
+#     return {"message": "Google Place IDs updated successfully."}
