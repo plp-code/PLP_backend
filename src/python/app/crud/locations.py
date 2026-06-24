@@ -28,7 +28,7 @@ async def get_by_map_paginated(
     result = await db.execute(
         select(Location)
         .where(Location.map_id == map_id)
-        .options(selectinload(Location.hours))  # eager-load so LocationRead can serialize hours
+        .options(selectinload(Location.hours))  
         .order_by(Location.id)
         .offset(offset)
         .limit(limit)

@@ -112,7 +112,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)) -
             logger.warning(f"Webhook missing metadata: {event_type}")
             return {"status": "ignored", "reason": "missing metadata"}
 
-        # Idempotency check
+        
         existing = await crud.invoices.get_by_session_id(db, session_obj["id"])
         if existing:
             logger.info(f"Duplicate webhook ignored: {session_obj['id']}")

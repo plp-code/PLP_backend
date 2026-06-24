@@ -110,10 +110,9 @@ async def logout_all(
     response.delete_cookie("refresh_token", path="/api/v1/auth/refresh")
     return {"message": "Logged out from all devices"}
 
-# not using preset refresh token that's alreadyy set? instead, creating a new one and setting it in the cookie?
 async def _set_session_cookies(response: Response, db: AsyncSession, user_id: int) -> None:
     access_token = create_access_token(user_id)
-    refresh_token, expires_at = create_refresh_token(user_id)
+    refresh_token, expires_at = create_refresh_token() 
 
     await crud.tokens.store_refresh_token(
         db,
@@ -121,11 +120,9 @@ async def _set_session_cookies(response: Response, db: AsyncSession, user_id: in
         token=refresh_token,
         expires_at=expires_at,
     )
-    
-    set_auth_cookie(response, "access_token", f"Bearer {access_token}")          
-    set_auth_cookie(response, "refresh_token", f"Bearer {refresh_token}",        
-        max_age=7 * 24 * 60 * 60,
-        path="/api/v1/auth/refresh",  
-    )
 
-    
+    set_auth_cookie(response, "access_token", f"Bearer {access_token}")
+    set_auth_cookie(response, "refresh_token", f"Bearer {refresh_token}",
+        max_age=7 * 24 * 60 * 60,
+        path="/api/v1/auth/refresh",
+    )

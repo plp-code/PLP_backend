@@ -8,14 +8,13 @@ from src.python.app.core.database import Base
 class Location(Base):
     __tablename__ = "locations"
 
-    id = Column(Integer, primary_key=True)  # PRIMARY already indexes this; no extra index needed
+    id = Column(Integer, primary_key=True) 
     name = Column(String(255), nullable=False)
     map_id = Column(Integer, ForeignKey("maps.id", ondelete="CASCADE"), nullable=False, index=True)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     min_price = Column(Integer, nullable=True)
     max_price = Column(Integer, nullable=True)
-    # PriceLevel enum: 1 = CHEAP, 2 = STANDARD, 3 = EXPENSIVE (see models/enums.py)
     price_level = Column(Integer, nullable=True)
     description = Column(String(1024), nullable=True)
     created_at = Column(DateTime, server_default=func.now())

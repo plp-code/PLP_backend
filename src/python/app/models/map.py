@@ -8,7 +8,7 @@ from src.python.app.core.database import Base
 class Map(Base):
     __tablename__ = "maps"
 
-    id = Column(Integer, primary_key=True)  # PRIMARY already indexes this; no extra index needed
+    id = Column(Integer, primary_key=True)  
     name = Column(String(255), unique=True, nullable=False)
     slug = Column(String(255), unique=True, nullable=False)
     region = Column(String(255), nullable=True)

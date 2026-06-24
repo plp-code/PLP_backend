@@ -8,8 +8,8 @@ from src.python.app.core.database import Base
 class Purchase(Base):
     __tablename__ = "purchases"
 
-    id = Column(Integer, primary_key=True)  # PRIMARY already indexes this; no extra index needed
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)  # covered by uq_user_map_purchase prefix
+    id = Column(Integer, primary_key=True)  
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)  
     map_id = Column(Integer, ForeignKey("maps.id", ondelete="CASCADE"), nullable=False)
     invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=False)
     purchased_at = Column(DateTime, server_default=func.now())

@@ -1,7 +1,8 @@
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import func
 
 from src.python.app.models.token import Token
 
@@ -26,7 +27,7 @@ async def validate_refresh_token(
         select(Token).where(
             Token.token == token,
             Token.is_revoked == False,
-            Token.expires_at > datetime.now(timezone.utc),
+            Token.expires_at > func.now(), 
         )
     )
     return result.scalar_one_or_none()

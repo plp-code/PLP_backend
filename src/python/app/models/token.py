@@ -8,10 +8,10 @@ from src.python.app.core.database import Base
 class Token(Base):
     __tablename__ = "tokens"
 
-    id = Column(Integer, primary_key=True)  # PRIMARY already indexes this; no extra index needed
+    id = Column(Integer, primary_key=True)  
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    token = Column(String(512), unique=True, nullable=False)  # unique already creates an index
-    expires_at = Column(DateTime, nullable=False, index=True)  # for the expired-token cleanup job
+    token = Column(String(512), unique=True, nullable=False)  
+    expires_at = Column(DateTime, nullable=False, index=True)  
     is_revoked = Column(Boolean, default=False)
     created_at = Column(DateTime, server_default=func.now())
 
