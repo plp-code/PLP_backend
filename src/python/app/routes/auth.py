@@ -83,13 +83,13 @@ async def logout(
     db: AsyncSession = Depends(get_db),
     refresh_token: str | None = Cookie(default=None),
 ) -> dict:
-    """Logout from current session."""
+    """Logout user by revoking the refresh token."""
     if refresh_token:
         token = refresh_token.split(" ")[1] if refresh_token.startswith("Bearer ") else refresh_token
         await crud.tokens.revoke_token(db, token)
 
     response.delete_cookie("access_token")
-    response.delete_cookie("refresh_token", path="/api/v1/auth/refresh")
+    response.delete_cookie("refresh_token", path="/api/v1/auth") 
     return {"message": "Logged out"}
 
 
@@ -107,12 +107,12 @@ async def logout_all(
             await crud.tokens.revoke_all_user_tokens(db, stored.user_id)
 
     response.delete_cookie("access_token")
-    response.delete_cookie("refresh_token", path="/api/v1/auth/refresh")
+    response.delete_cookie("refresh_token", path="/api/v1/auth")
     return {"message": "Logged out from all devices"}
 
 async def _set_session_cookies(response: Response, db: AsyncSession, user_id: int) -> None:
     access_token = create_access_token(user_id)
-    refresh_token, expires_at = create_refresh_token() 
+    refresh_token, expires_at = create_refresh_token()
 
     await crud.tokens.store_refresh_token(
         db,
@@ -124,5 +124,5 @@ async def _set_session_cookies(response: Response, db: AsyncSession, user_id: in
     set_auth_cookie(response, "access_token", f"Bearer {access_token}")
     set_auth_cookie(response, "refresh_token", f"Bearer {refresh_token}",
         max_age=7 * 24 * 60 * 60,
-        path="/api/v1/auth/refresh",
+        path="/api/v1/auth",
     )
