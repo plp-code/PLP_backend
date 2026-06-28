@@ -15,6 +15,7 @@ class Location(Base):
     longitude = Column(Float, nullable=False)
     min_price = Column(Integer, nullable=True)
     max_price = Column(Integer, nullable=True)
+    google_place_id = Column(String(255), nullable=True)
     price_level = Column(Integer, nullable=True)
     description = Column(String(1024), nullable=True)
     created_at = Column(DateTime, server_default=func.now())

@@ -88,23 +88,45 @@ async def get_locations_paginated(
     return [LocationRead.model_validate(loc) for loc in locations]
 
 
-# get google_place id and add to each store
-# @router.put("/{slug}/locations/google-place-ids")
-# async def update_google_place_ids(
-#     slug: str,
-#     db: AsyncSession = Depends(get_db),
-#     current_user: User = Depends(get_current_user),
-# ):
-#     """Update Google Place IDs for locations in a map the user owns."""
-#     map_ = await get_owned_map(slug, db, current_user)
-#     locations = await crud.locations.get_by_map(db, map_.id)
+@router.put("/{slug}/locations/google-place-ids")
+async def update_google_place_ids(
+    slug: str,
+    db: AsyncSession = Depends(get_db),
+    # x_admin_key: str = Header(...),
+):
+    """Batch update Google Place IDs for all locations in a map."""
+    # if x_admin_key != settings.ADMIN_API_KEY:
+    #     raise HTTPException(status_code=403, detail="Forbidden")
 
-#     for location in locations:
-#         if not location.google_place_id:
-#             google_place_id = await crud.locations.fetch_google_place_id(location)
-#             if google_place_id:
-#                 location.google_place_id = google_place_id
-#                 db.add(location)
+    map_ = await crud.maps.get_map_by_slug(db, slug)
+    if not map_:
+        raise HTTPException(status_code=404, detail="Map not found")
 
-#     await db.commit()
-#     return {"message": "Google Place IDs updated successfully."}
+    locations = await crud.locations.get_by_map(db, map_.id)
+
+    updated = 0
+    skipped = 0
+    failed = 0
+
+    for location in locations:
+        if location.google_place_id:
+            skipped += 1
+            continue
+
+        place_id = await crud.locations.fetch_google_place_id(
+            location.name, location.latitude, location.longitude,
+        )
+
+        if place_id:
+            location.google_place_id = place_id
+            updated += 1
+        else:
+            failed += 1
+
+    return {
+        "map": map_.name,
+        "total": len(locations),
+        "updated": updated,
+        "skipped": skipped,
+        "failed": failed,
+    }
