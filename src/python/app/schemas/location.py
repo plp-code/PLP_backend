@@ -39,6 +39,7 @@ class LocationMinimalRead(BaseModel):
     longitude: float = Field(..., ge=-180, le=180)
 
 
+
 class LocationBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     latitude: float = Field(..., ge=-90, le=90)
@@ -47,6 +48,8 @@ class LocationBase(BaseModel):
     max_price: int | None = Field(default=None, ge=0)
     price_level: PriceLevel | None = None
     description: str | None = Field(default=None, max_length=1024)
+    google_place_id: str | None = Field(default=None, max_length=255)
+    
 
 
 class LocationCreate(LocationBase):
@@ -62,6 +65,7 @@ class LocationUpdate(BaseModel):
     max_price: int | None = Field(default=None, ge=0)
     price_level: PriceLevel | None = None
     description: str | None = Field(default=None, max_length=1024)
+    google_place_id: str | None = Field(default=None, max_length=255)
     hours: list[LocationHoursCreate] | None = None
 
 

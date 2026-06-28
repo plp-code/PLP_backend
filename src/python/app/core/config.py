@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     # Stripe
     STRIPE_SECRET_KEY: str
     STRIPE_WEBHOOK_SECRET: str
+    
+    # Google Places API
+    GOOGLE_PLACES_API_KEY: str
 
     # App
     ENVIRONMENT: str = "development"
