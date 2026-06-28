@@ -38,7 +38,7 @@ python-dotenv==1.2.2
 python-multipart==0.0.32
 redis==8.0.0
 requests==2.34.2
-SQLAlchemy==2.0.50
+SQLAlchemy==2.0.51
 starlette==1.2.1
 stripe==15.2.1
 truststore==0.10.4
