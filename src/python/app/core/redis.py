@@ -7,14 +7,17 @@ _redis_client: Redis | None = None
 async def get_redis_client() -> Redis:
     global _redis_client
     if _redis_client is None:
-        _redis_client = Redis(
+        client = Redis(
             host=settings.REDIS_HOST,
             port=settings.REDIS_PORT,
             db=settings.REDIS_DB,
             decode_responses=True,
             socket_connect_timeout=settings.REDIS_TIMEOUT,
         )
-        await _redis_client.ping()
+        # Only cache the client once we've confirmed it's reachable, so a failed
+        # ping doesn't leave a broken client that stalls every later request.
+        await client.ping()
+        _redis_client = client
     return _redis_client
 
 
