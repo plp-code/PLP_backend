@@ -25,11 +25,12 @@ async def scheduled_cleanup():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    try:
-        await get_redis_client()
-    except Exception:
-        print("Redis not available — rate limiting disabled")
-        
+    if settings.REDIS_ENABLED:
+        try:
+            await get_redis_client()
+        except Exception:
+            print("Redis not available — rate limiting will use in-memory fallback")
+
     cleanup_task = asyncio.create_task(scheduled_cleanup())
         
     yield
@@ -66,6 +67,7 @@ if settings.RATE_LIMIT_ENABLED:
     app.add_middleware(
         RedisRateLimitMiddleware,
         default_limit=settings.RATE_LIMIT_REQUESTS_PER_MINUTE,
+        redis_enabled=settings.REDIS_ENABLED,
     )
 
 origins = [

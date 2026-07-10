@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     
     
     # Redis
+    # Off by default: rate limiting falls back to in-memory counting, which is
+    # correct for a single process/container. Turn on when running multiple
+    # workers or containers that must share limit counters.
+    REDIS_ENABLED: bool = False
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
