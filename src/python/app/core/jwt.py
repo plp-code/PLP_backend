@@ -24,6 +24,26 @@ def create_refresh_token() -> tuple[str, datetime]:
     return token, expires_at
 
 
+def create_password_reset_token(user_email: str) -> str:
+    payload = {
+        "sub": user_email,
+        "type": "password_reset",
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=10),
+    }
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+
+def decode_password_reset_token(token: str) -> str:
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        if payload.get("type") != "password_reset":
+            raise InvalidTokenError("Not a password reset token")
+        return payload.get("sub")
+    except (ExpiredSignatureError, InvalidTokenError):
+        raise
+
+
 def decode_access_token(token: str) -> dict:
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])

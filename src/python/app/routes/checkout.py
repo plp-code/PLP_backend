@@ -1,6 +1,6 @@
 import stripe
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.python.app import crud
@@ -79,14 +79,25 @@ async def create_checkout_session(
 
 
 @router.post("/webhook")
-async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
+async def stripe_webhook(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    stripe_signature: str | None = Header(None, alias="stripe-signature"),
+) -> dict:
     """Handle Stripe webhook events."""
+    if not stripe_signature:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing 'stripe-signature' header.",
+        )
+    
     payload = await request.body()
-    sig_header = request.headers.get("stripe-signature")
 
     try:
         event = stripe.Webhook.construct_event(
-            payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
+            payload=payload,
+            sig_header=stripe_signature,
+            secret=settings.STRIPE_WEBHOOK_SECRET,
         )
     except ValueError:
         logger.warning("Webhook received with invalid payload")
@@ -108,7 +119,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)) -
         "checkout.session.expired",
         "checkout.session.async_payment_failed",
     }:
-        if not user_id or not map_id:
+        if not user_id or not map_id:   
             logger.warning(f"Webhook missing metadata: {event_type}")
             return {"status": "ignored", "reason": "missing metadata"}
 
@@ -164,6 +175,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)) -
 
         if purchase:
             await db.delete(purchase)
+            await db.commit()
             logger.info(f"Purchase revoked: user={invoice.user_id} map={invoice.map_id}")
 
         return {"status": "refunded"}
