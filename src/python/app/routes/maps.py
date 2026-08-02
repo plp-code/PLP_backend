@@ -1,3 +1,5 @@
+from select import select
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,7 +32,7 @@ async def list_maps(
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(get_current_user_optional),
 ):
-    """List maps with pagination and optional search. Indicates if the current user owns each map."""
+    """List maps with pagination and optional search. Indicates if the current user owns each map and indicates if the user is on the waitlist for a map that isn't live."""
     maps, total = await crud.maps.get_active_maps(
         db, search=search, page=page, limit=limit,
     )
@@ -38,6 +40,10 @@ async def list_maps(
     owned: set[int] = set()
     if current_user:
         owned = {purchase.map_id for purchase in await crud.purchases.get_purchases_by_user(db, current_user.id)}
+        
+    waitlisted: set[int] = set()
+    if current_user:
+        waitlisted = {entry.map_id for entry in await crud.waitlist.get_waitlist_entries_by_user(db, current_user.id)}
 
     items = [
         MapSummary(
@@ -47,7 +53,9 @@ async def list_maps(
             region=m.region,
             price=m.price,
             description=m.description,
+            is_active=m.is_active,
             is_purchased=m.id in owned,
+            is_waitlisted=m.id in waitlisted,
         )
         for m in maps
     ]
@@ -59,6 +67,26 @@ async def list_maps(
         limit=limit,
         has_more=(page * limit) < total,
     )
+    
+@router.put("/{slug}/join-waitlist", response_model=dict)
+async def join_waitlist(
+    slug: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Join the waitlist for a map."""
+    map_ = await crud.maps.get_map_by_slug(db, slug)
+    if not map_:
+        raise HTTPException(status_code=404, detail="Map not found")
+
+    existing_entry = await crud.waitlist.get_waitlist_entry(db, current_user.id, map_.id)
+    if existing_entry:
+        raise HTTPException(status_code=400, detail="Already on the waitlist for this map")
+
+    await crud.waitlist.create_waitlist_entry(db, current_user.id, map_.id)
+
+    return {"message": f"Successfully joined the waitlist for {map_.name}"}
+
 
 
 @router.get("/{slug}/locations/pins", response_model=list[LocationMinimalRead])

@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     # Google Places API
     GOOGLE_PLACES_API_KEY: str
 
+    # Email
+    RESEND_API_KEY: str
+    EMAIL_FROM: str 
+
     # App
     ENVIRONMENT: str = "development"
     FRONTEND_URL: str = "http://localhost:3000"
