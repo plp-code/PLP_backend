@@ -1,15 +1,18 @@
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.python.app.core.email import send_password_reset_email
 from src.python.app import crud
 from src.python.app.core.database import get_db
 from src.python.app.core.jwt import (
     create_access_token,
     create_refresh_token,
+    create_password_reset_token,
+    decode_password_reset_token,
     set_auth_cookie,
 )
 from src.python.app.core.security import hash_password, verify_password
-from src.python.app.schemas.auth import LoginRequest
+from src.python.app.schemas.auth import ForgotPasswordRequest, LoginRequest, ResetPasswordRequest
 from src.python.app.schemas.user import UserCreate, UserRead
 
 router = APIRouter()
@@ -76,6 +79,50 @@ async def refresh(
 
     return {"message": "Token refreshed"}
 
+
+@router.post("/forgot-password")
+async def forgot_password(
+    body: ForgotPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Initiate password reset process."""
+    user = await crud.users.get_user_by_email(db, body.email)
+    
+    if user:
+        reset_token = create_password_reset_token(user.email)
+        await send_password_reset_email(user.email, reset_token)
+        
+    return {"message": "If the email exists, a password reset link will be sent."}
+
+
+@router.post("/reset-password")
+async def reset_password(
+    body: ResetPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Reset password using the provided token and invalidate active sessions."""
+    email = decode_password_reset_token(body.token)
+    
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Invalid or expired password reset token."
+        )
+
+    user = await crud.users.get_user_by_email(db, email)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Invalid or expired password reset token."
+        )
+
+    await crud.users.update_user_password(
+        db, 
+        user_id=user.id, 
+        new_hashed_password=hash_password(body.new_password)
+    )
+
+    return {"message": "Password reset successfully. Please log in with your new password."}
 
 @router.post("/logout")
 async def logout(
