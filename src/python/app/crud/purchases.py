@@ -15,6 +15,19 @@ async def get_purchases_by_user(db: AsyncSession, user_id: int) -> list[Purchase
     result = await db.execute(select(Purchase).where(Purchase.user_id == user_id))
     return list(result.scalars().all())
 
+async def get_purchases_by_user_and_maps(
+    db: AsyncSession, user_id: int, map_ids: list[int]
+) -> list[Purchase]: 
+    if not map_ids:
+        return []
+        
+    query = select(Purchase).where(
+        Purchase.user_id == user_id,
+        Purchase.map_id.in_(map_ids)
+    )
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
 
 async def create_purchase(db: AsyncSession, user_id: int, map_id: int, invoice_id: int) -> Purchase:
     purchase = Purchase(user_id=user_id, map_id=map_id, invoice_id=invoice_id)

@@ -1,8 +1,7 @@
-from select import select
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.python.app.models.enums import MapStatus
 from src.python.app import crud
 from src.python.app.core.database import get_db
 from src.python.app.core.dependencies import get_current_user, get_current_user_optional
@@ -27,23 +26,30 @@ async def get_owned_map(
 @router.get("", response_model=MapListResponse)
 async def list_maps(
     search: str | None = Query(default=None, max_length=255),
+    status: MapStatus | None = Query(default=None),
     page: int = Query(default=1, ge=1),
-    limit: int = Query(default=25, ge=1, le=100),
+    limit: int = Query(default=5, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(get_current_user_optional),
 ):
-    """List maps with pagination and optional search. Indicates if the current user owns each map and indicates if the user is on the waitlist for a map that isn't live."""
     maps, total = await crud.maps.get_active_maps(
-        db, search=search, page=page, limit=limit,
+        db, search=search, status=status, page=page, limit=limit
     )
 
     owned: set[int] = set()
-    if current_user:
-        owned = {purchase.map_id for purchase in await crud.purchases.get_purchases_by_user(db, current_user.id)}
-        
     waitlisted: set[int] = set()
-    if current_user:
-        waitlisted = {entry.map_id for entry in await crud.waitlist.get_waitlist_entries_by_user(db, current_user.id)}
+
+    if current_user and maps:
+        page_map_ids = [m.id for m in maps]
+        purchases = await crud.purchases.get_purchases_by_user_and_maps(
+            db, user_id=current_user.id, map_ids=page_map_ids
+        )
+        owned = {p.map_id for p in purchases}
+
+        entries = await crud.waitlist.get_waitlist_by_user_and_maps(
+            db, user_id=current_user.id, map_ids=page_map_ids
+        )
+        waitlisted = {e.map_id for e in entries}
 
     items = [
         MapSummary(
@@ -53,7 +59,7 @@ async def list_maps(
             region=m.region,
             price=m.price,
             description=m.description,
-            is_active=m.is_active,
+            status=m.status,
             is_purchased=m.id in owned,
             is_waitlisted=m.id in waitlisted,
         )
@@ -67,6 +73,7 @@ async def list_maps(
         limit=limit,
         has_more=(page * limit) < total,
     )
+    
     
 @router.put("/{slug}/join-waitlist", response_model=dict)
 async def join_waitlist(

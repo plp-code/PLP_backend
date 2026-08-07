@@ -1,6 +1,7 @@
-from sqlalchemy import Boolean, Column, Integer, String, true
+from sqlalchemy import Boolean, Column, Integer, String, true, Enum as SQLEnum
 from sqlalchemy.orm import relationship
 
+from src.python.app.models.enums import MapStatus
 from src.python.app.core.database import Base
 from src.python.app.models.mixins import TimestampMixin
 
@@ -14,8 +15,17 @@ class Map(TimestampMixin, Base):
     region = Column(String(255), nullable=True)
     price = Column(Integer, nullable=False)
     description = Column(String(512), nullable=True)
-    is_active = Column(Boolean, nullable=False, default=True, server_default=true())
-
+    status = Column(
+        SQLEnum(
+            MapStatus, 
+            name="map_status",
+            values_callable=lambda x: [e.value for e in x]
+        ),
+        nullable=False,
+        default=MapStatus.WAITLIST,
+        server_default="waitlist"
+    )
+    
     waitlist = relationship("Waitlist", back_populates="map", cascade="all, delete-orphan")
     locations = relationship("Location", back_populates="map", cascade="all, delete-orphan")
     invoices = relationship("Invoice", back_populates="map")

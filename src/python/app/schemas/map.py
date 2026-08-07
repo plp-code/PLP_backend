@@ -1,7 +1,6 @@
 from datetime import datetime
-
 from pydantic import BaseModel, ConfigDict, Field
-
+from src.python.app.models.enums import MapStatus
 from src.python.app.schemas.location import LocationRead
 
 
@@ -14,7 +13,7 @@ class MapBase(BaseModel):
 
 
 class MapCreate(MapBase):
-    pass
+    status: MapStatus = MapStatus.WAITLIST
 
 
 class MapUpdate(BaseModel):
@@ -23,14 +22,16 @@ class MapUpdate(BaseModel):
     region: str | None = Field(default=None, max_length=255)
     price: int | None = Field(default=None, ge=0)
     description: str | None = Field(default=None, max_length=512)
-    is_active: bool | None = None
+    status: MapStatus | None = None  
 
 
 class MapSummary(MapBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    status: MapStatus             
     is_purchased: bool = False
+    is_waitlisted: bool = False   
 
 
 class MapListResponse(BaseModel):
@@ -45,7 +46,7 @@ class MapRead(MapBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    is_active: bool
+    status: MapStatus             
     created_at: datetime
     updated_at: datetime
 
@@ -54,6 +55,7 @@ class MapDetail(MapBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    status: MapStatus             
     is_purchased: bool = True
     locations: list[LocationRead] = []
     total_locations: int = 0
