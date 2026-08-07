@@ -1,4 +1,4 @@
-from enum import IntEnum
+from enum import IntEnum, Enum
 
 
 class PriceLevel(IntEnum):
@@ -11,3 +11,9 @@ class PriceLevel(IntEnum):
     CHEAP = 1
     STANDARD = 2
     EXPENSIVE = 3
+
+
+class MapStatus(str, Enum):
+    LIVE = "live"
+    WAITLIST = "waitlist"
+    DROPPED = "dropped"
