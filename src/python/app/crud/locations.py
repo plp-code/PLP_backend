@@ -7,7 +7,6 @@ from sqlalchemy.orm import selectinload
 
 from src.python.app.models.location import Location
 from src.python.app.models.location_hours import LocationHours
-from src.python.app.models.enums import PriceLevel
 from src.python.app.schemas.location import LocationHoursCreate
 from src.python.app.core.config import settings
 
@@ -53,7 +52,7 @@ async def create_location(
     longitude: float,
     min_price: int | None = None,
     max_price: int | None = None,
-    price_level: PriceLevel | None = None,
+    price_level: int | None = None,
     description: str | None = None,
     hours: list[LocationHoursCreate] | None = None,
 ) -> Location:
