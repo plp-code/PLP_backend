@@ -43,3 +43,4 @@ test_api.db
 dump.rdb
 
 seed_new.sql
+prod_backup_before_migration.sql

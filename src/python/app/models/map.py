@@ -26,7 +26,7 @@ class Map(TimestampMixin, Base):
         server_default="waitlist"
     )
     
-    waitlist = relationship("Waitlist", back_populates="map", cascade="all, delete-orphan")
+    waitlist_entries = relationship("WaitlistEntries", back_populates="map", cascade="all, delete-orphan")
     locations = relationship("Location", back_populates="map", cascade="all, delete-orphan")
     invoices = relationship("Invoice", back_populates="map")
     purchases = relationship("Purchase", back_populates="map")
