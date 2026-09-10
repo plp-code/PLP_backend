@@ -25,7 +25,7 @@ class Location(TimestampMixin, Base):
     )
 
     map = relationship("Map", back_populates="locations")
-    comments = relationship("Comment", back_populates="location", cascade="all, delete-orphan")
+    reviews = relationship("Review", back_populates="location", cascade="all, delete-orphan")
     hours = relationship(
         "LocationHours",
         back_populates="location",
