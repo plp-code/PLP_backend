@@ -1,5 +1,6 @@
 import ssl
 
+from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 from src.python.app.core.config import settings
@@ -20,6 +21,7 @@ if settings.DB_SSL_REQUIRED and "aiomysql" in settings.DATABASE_URL:
     ssl_ctx.verify_mode = ssl.CERT_NONE
     engine_kwargs["connect_args"] = {"ssl": ssl_ctx}
 
+
 engine = create_async_engine(settings.DATABASE_URL, echo=False, **engine_kwargs)
 
 AsyncSessionLocal = async_sessionmaker(
@@ -28,9 +30,17 @@ AsyncSessionLocal = async_sessionmaker(
     expire_on_commit=False,
 )
 
+NAMING_CONVENTION = {
+    "ix": "ix_%(table_name)s_%(column_0_name)s",
+    "uq": "uq_%(table_name)s_%(column_0_name)s",
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s",
+}
+
 
 class Base(DeclarativeBase):
-    pass
+    metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
 
 async def get_db():

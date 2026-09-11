@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, Integer
+from sqlalchemy import Column, ForeignKey, Index, Integer
 from sqlalchemy.orm import relationship
 
 from src.python.app.core.database import Base
@@ -9,3 +9,7 @@ class ReviewCategory(TimestampMixin, Base):
 
     review_id = Column(Integer, ForeignKey("reviews.id", ondelete="CASCADE"), primary_key=True)
     category_id = Column(Integer, ForeignKey("clothing_categories.id", ondelete="CASCADE"), primary_key=True)
+    
+    __table_args__ = (
+        Index("ix_review_categories_category_id", "category_id"),
+    )
