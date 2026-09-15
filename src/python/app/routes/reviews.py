@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.python.app import crud
@@ -20,7 +20,7 @@ async def get_reviews(
     return ReviewListResponse(reviews=reviews, total=len(reviews))
 
 
-@router.post("/{location_id}")
+@router.post("/{location_id}", status_code=status.HTTP_201_CREATED)
 async def create_review(
     location_id: int,
     payload: ReviewCreate,
