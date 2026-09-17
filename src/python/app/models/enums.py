@@ -5,6 +5,7 @@ class MapStatus(str, Enum):
     LIVE = "live"
     WAITLIST = "waitlist"
     DROPPED = "dropped"
+    NEXT = "next"
     
 
 class WaitlistEntriesStatus(str, Enum):

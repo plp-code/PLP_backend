@@ -4,6 +4,9 @@ from src.python.app.schemas.auth import (
     TokenPair,
     TokenPayload,
 )
+from src.python.app.schemas.clothing_category import (
+    CategoriesRead,
+)
 from src.python.app.schemas.invoice import (
     InvoiceCreate,
     InvoiceRead,
@@ -28,6 +31,10 @@ from src.python.app.schemas.purchase import (
     PurchaseCreate,
     PurchaseRead,
 )
+from src.python.app.schemas.review import (
+    ReviewCreate,
+    ReviewListResponse,
+)
 from src.python.app.schemas.token import (
     TokenCreate,
     TokenRead,
@@ -41,6 +48,7 @@ from src.python.app.schemas.user import (
 __all__ = [
     "LoginRequest",
     "RefreshRequest",
+    "CategoriesRead",
     "TokenPair",
     "TokenPayload",
     "InvoiceCreate",
@@ -59,6 +67,8 @@ __all__ = [
     "MapSummary",
     "PurchaseCreate",
     "PurchaseRead",
+    "ReviewListResponse",
+    "ReviewCreate",
     "TokenCreate",
     "TokenRead",
     "UserCreate",

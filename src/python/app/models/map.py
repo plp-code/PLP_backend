@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Integer, String, true, Enum as SQLEnum
+from sqlalchemy import Boolean, Column, Integer, String, UniqueConstraint, true, Enum as SQLEnum
 from sqlalchemy.orm import relationship
 
 from src.python.app.models.enums import MapStatus
@@ -10,8 +10,8 @@ class Map(TimestampMixin, Base):
     __tablename__ = "maps"
 
     id = Column(Integer, primary_key=True)
-    name = Column(String(255), unique=True, nullable=False)
-    slug = Column(String(255), unique=True, nullable=False)
+    name = Column(String(255), nullable=False)
+    slug = Column(String(255), nullable=False)
     region = Column(String(255), nullable=True)
     price = Column(Integer, nullable=False)
     description = Column(String(512), nullable=True)
@@ -30,3 +30,8 @@ class Map(TimestampMixin, Base):
     locations = relationship("Location", back_populates="map", cascade="all, delete-orphan")
     invoices = relationship("Invoice", back_populates="map")
     purchases = relationship("Purchase", back_populates="map")
+    
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_maps_name"),
+        UniqueConstraint("slug", name="uq_maps_slug"),
+    )
