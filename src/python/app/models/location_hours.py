@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, SmallInteger, Time, false
+from sqlalchemy import Boolean, CheckConstraint, Column, ForeignKey, Integer, SmallInteger, Time, false
 from sqlalchemy.orm import relationship
 
 from src.python.app.core.database import Base
@@ -16,5 +16,9 @@ class LocationHours(TimestampMixin, Base):
     open_time = Column(Time, nullable=True)
     close_time = Column(Time, nullable=True)
     is_closed = Column(Boolean, nullable=False, default=False, server_default=false())
+    
+    __table_args__ = (
+        CheckConstraint("day_of_week BETWEEN 0 AND 6", name="chk_location_hours_day_of_week"),
+    )
 
     location = relationship("Location", back_populates="hours")

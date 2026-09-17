@@ -18,5 +18,5 @@ class User(TimestampMixin, Base):
     tokens = relationship("Token", back_populates="user", cascade="all, delete-orphan")
     invoices = relationship("Invoice", back_populates="user")
     purchases = relationship("Purchase", back_populates="user")
-    comments = relationship("Comment", back_populates="user", cascade="all, delete-orphan")
+    reviews = relationship("Review", back_populates="user", cascade="all, delete-orphan")
     waitlist_entries = relationship("WaitlistEntries", back_populates="user", cascade="all, delete-orphan")
