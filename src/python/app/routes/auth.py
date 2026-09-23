@@ -45,7 +45,8 @@ async def login(
     data: LoginRequest,
     response: Response,
     db: AsyncSession = Depends(get_db),
-) -> dict:
+    existing_refresh_token: str | None = Cookie(default=None)
+) -> UserRead:
     """Authenticate user and set session cookies."""
     user = await crud.users.get_user_by_email(db, data.email)
     if not user or not verify_password(data.password, user.hashed_password):
@@ -54,8 +55,16 @@ async def login(
             detail="Incorrect email or password",
         )
 
+    if existing_refresh_token:
+        raw_token = (
+            existing_refresh_token.split(" ")[1]
+            if existing_refresh_token.startswith("Bearer ")
+            else existing_refresh_token
+        )
+        await crud.tokens.revoke_token(db, raw_token)
+
     await _set_session_cookies(response, db, user.id)
-    return {"message": "Logged in"}
+    return user
 
 
 @router.post("/refresh")

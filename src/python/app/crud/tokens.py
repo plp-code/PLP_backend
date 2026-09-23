@@ -8,8 +8,29 @@ from src.python.app.models.token import Token
 
 
 async def store_refresh_token(
-    db: AsyncSession, user_id: int, token: str, expires_at: datetime,
+    db: AsyncSession,
+    user_id: int,
+    token: str,
+    expires_at: datetime,
+    max_active_sessions: int = 5,
 ) -> Token:
+    query = (
+        select(Token)
+        .where(
+            Token.user_id == user_id,
+            Token.is_revoked.is_(False),
+            Token.expires_at > func.now(),
+        )
+        .order_by(Token.created_at.desc())
+    )
+    result = await db.execute(query)
+    active_tokens = result.scalars().all()
+
+    if len(active_tokens) >= max_active_sessions:
+        stale_tokens = active_tokens[max_active_sessions - 1 :]
+        for stale in stale_tokens:
+            stale.is_revoked = True
+
     refresh = Token(
         user_id=user_id,
         token=token,
