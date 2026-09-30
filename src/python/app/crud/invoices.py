@@ -22,6 +22,21 @@ async def get_by_payment_intent_id(db: AsyncSession, payment_intent_id: str) -> 
     return result.scalar_one_or_none()
 
 
+async def user_has_other_paid_invoice(
+    db: AsyncSession, user_id: int, exclude_invoice_id: int
+) -> bool:
+    result = await db.execute(
+        select(Invoice.id)
+        .where(
+            Invoice.user_id == user_id,
+            Invoice.status == "paid",
+            Invoice.id != exclude_invoice_id,
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none() is not None
+
+
 async def get_invoice_by_checkout_session_id(
     db: AsyncSession, stripe_checkout_session_id: str
 ) -> Invoice | None:

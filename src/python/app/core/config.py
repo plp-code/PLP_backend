@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     RATE_LIMIT_REQUESTS_PER_MINUTE: int = 120
 
     # JWT
-    SECRET_KEY: str = "fallback_secret_key_for_emergencies" 
+    SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     # App
     ENVIRONMENT: str = "development"
     FRONTEND_URL: str = "http://localhost:3000"
+
 
     @field_validator("SECRET_KEY")
     @classmethod
