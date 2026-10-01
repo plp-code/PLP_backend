@@ -32,10 +32,10 @@ async def get_current_user(
         user_id = int(payload.get("sub"))
 
         user = await db.get(User, user_id)
-
         if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-
+            raise HTTPException(status_code=401, detail="Invalid or expired session")
+        if not user.is_active:
+            raise HTTPException(status_code=401, detail="Invalid or expired session")
         return user
 
     except HTTPException:
@@ -54,10 +54,7 @@ async def get_current_user_optional(
     token = get_token_from_cookie(request)
     if not token:
         return None
-
     try:
-        payload = decode_access_token(token)
-        user = await db.get(User, int(payload.get("sub")))
-        return user
-    except Exception:
+        return await get_current_user(request=request, db=db)
+    except HTTPException:
         return None
