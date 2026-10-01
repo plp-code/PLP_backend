@@ -16,6 +16,7 @@ class RedisRateLimitMiddleware(BaseHTTPMiddleware):
             "/api/v1/auth/login": 5,
             "/api/v1/auth/register": 3,
             "/api/v1/auth/forgot-password": 3,
+            "/api/v1/auth/magic-link": 3,
             "/api/v1/checkout/create-session": 5,
             
         }

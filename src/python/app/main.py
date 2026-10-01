@@ -1,16 +1,27 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, logger, Depends
+from fastapi import FastAPI, Request, Depends
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from starlette.responses import JSONResponse
 import asyncio
+import logging
 from src.python.app.core.database import AsyncSessionLocal, get_db
 from src.python.app.tasks.cleanup import cleanup_expired_tokens
 from src.python.app.routes.api import api_router
 from src.python.app.core.config import settings
 from src.python.app.core.redis import get_redis_client, close_redis_client
 from src.python.app.core.rate_limit import RedisRateLimitMiddleware
+
+
+logger = logging.getLogger(__name__)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
 
 async def scheduled_cleanup():
     while True:
@@ -37,6 +48,8 @@ async def lifespan(app: FastAPI):
     
     cleanup_task.cancel()
     await close_redis_client()
+    
+
     
 app = FastAPI(title="PLP Backend API", version="1.0.0", lifespan=lifespan)
 

@@ -24,24 +24,29 @@ def create_refresh_token() -> tuple[str, datetime]:
     return token, expires_at
 
 
-def create_password_reset_token(user_email: str) -> str:
+def create_password_reset_token(email: str) -> tuple[str, str]:
+    jti = secrets.token_urlsafe(16)
     payload = {
-        "sub": user_email,
+        "sub": email,
         "type": "password_reset",
-        "exp": datetime.now(timezone.utc) + timedelta(minutes=10),
+        "jti": jti,
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=15),
     }
-    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM), jti
 
 
-
-def decode_password_reset_token(token: str) -> str:
+def decode_password_reset_token(token: str) -> dict:
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         if payload.get("type") != "password_reset":
             raise InvalidTokenError("Not a password reset token")
-        return payload.get("sub")
+        return {"email": payload.get("sub"), "jti": payload.get("jti")}
     except (ExpiredSignatureError, InvalidTokenError):
         raise
+
+
+def decode_token(token: str) -> dict:
+    return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
 
 
 def decode_access_token(token: str) -> dict:
@@ -53,13 +58,8 @@ def decode_access_token(token: str) -> dict:
     except (ExpiredSignatureError, InvalidTokenError):
         raise
     
-def set_auth_cookie(
-    response: Response, 
-    key: str, 
-    value: str, 
-    max_age: int = 15 * 60, 
-    path: str = "/",
-) -> None:
+    
+def set_auth_cookie(response, key, value, max_age: int = 15 * 60, path: str = "/") -> None:
     is_prod = os.getenv("ENVIRONMENT") == "production"
     
     response.set_cookie(

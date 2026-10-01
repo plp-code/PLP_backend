@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, Index, Integer, String, UniqueConstraint
+from sqlalchemy import Column, ForeignKey, Index, Integer, String, UniqueConstraint, DateTime
 from sqlalchemy.orm import relationship
 
 from src.python.app.core.database import Base
@@ -17,6 +17,7 @@ class Invoice(TimestampMixin, Base):
     amount = Column(Integer, nullable=False)
     currency = Column(String(3), nullable=False, default="usd", server_default="usd")
     status = Column(String(50), nullable=False, default="pending", server_default="pending")
+    session_minted_at = Column(DateTime(timezone=True), nullable=True)
     failure_reason = Column(String(500), nullable=True)
 
     purchases = relationship("Purchase", back_populates="invoice")

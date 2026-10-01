@@ -1,10 +1,15 @@
+import hashlib
 from datetime import datetime
 
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func
 
 from src.python.app.models.token import Token
+
+
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 async def store_refresh_token(
@@ -27,13 +32,13 @@ async def store_refresh_token(
     active_tokens = result.scalars().all()
 
     if len(active_tokens) >= max_active_sessions:
-        stale_tokens = active_tokens[max_active_sessions - 1 :]
+        stale_tokens = active_tokens[max_active_sessions - 1:]
         for stale in stale_tokens:
             stale.is_revoked = True
 
     refresh = Token(
         user_id=user_id,
-        token=token,
+        token=_hash_token(token),  
         expires_at=expires_at,
     )
     db.add(refresh)
@@ -41,14 +46,12 @@ async def store_refresh_token(
     return refresh
 
 
-async def validate_refresh_token(
-    db: AsyncSession, token: str,
-) -> Token | None:
+async def validate_refresh_token(db: AsyncSession, token: str) -> Token | None:
     result = await db.execute(
         select(Token).where(
-            Token.token == token,
-            Token.is_revoked == False,
-            Token.expires_at > func.now(), 
+            Token.token == _hash_token(token),
+            Token.is_revoked.is_(False),
+            Token.expires_at > func.now(),
         )
     )
     return result.scalar_one_or_none()
@@ -56,7 +59,7 @@ async def validate_refresh_token(
 
 async def revoke_token(db: AsyncSession, token: str) -> None:
     result = await db.execute(
-        select(Token).where(Token.token == token)
+        select(Token).where(Token.token == _hash_token(token))
     )
     refresh = result.scalar_one_or_none()
     if refresh:
@@ -64,7 +67,9 @@ async def revoke_token(db: AsyncSession, token: str) -> None:
 
 
 async def revoke_all_user_tokens(db: AsyncSession, user_id: int) -> None:
-    """Logout from all devices."""
     await db.execute(
-        delete(Token).where(Token.user_id == user_id)
+        update(Token).where(Token.user_id == user_id).values(is_revoked=True)
     )
+    
+    
+    
