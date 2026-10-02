@@ -32,7 +32,7 @@ class MagicLinkRequest(BaseModel):
     email: EmailStr
 
 
-class VerifyMagicLinkRequest(BaseModel):
+class VerfyLinkRequest(BaseModel):
     token: str
 
 

@@ -1,7 +1,6 @@
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
-from src.python.app.schemas.map import MapRead 
 
 
 class UserBase(BaseModel):

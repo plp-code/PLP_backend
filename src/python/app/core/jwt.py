@@ -24,6 +24,25 @@ def create_refresh_token() -> tuple[str, datetime]:
     return token, expires_at
 
 
+def create_email_verification_token(email: str) -> str:
+    return jwt.encode(
+        {"sub": email, "purpose": "verify_email",
+         "exp": datetime.now(timezone.utc) + timedelta(hours=24)},
+        settings.SECRET_KEY, algorithm=settings.ALGORITHM,
+    )
+    
+
+def decode_email_verification_token(email: str) -> str:
+    try:
+        payload = jwt.decode(email, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        if payload.get("purpose") != "verify_email":
+            raise InvalidTokenError("Not an email verification token")
+        return payload.get("sub")
+    except (ExpiredSignatureError, InvalidTokenError):
+        raise
+
+
+
 def create_password_reset_token(email: str) -> tuple[str, str]:
     jti = secrets.token_urlsafe(16)
     payload = {

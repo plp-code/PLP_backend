@@ -6,14 +6,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import jwt
 from src.python.app import crud
 from src.python.app.core.database import get_db
-from src.python.app.core.email import send_password_reset_email, send_magic_login_email
+from src.python.app.core.email import send_password_reset_email, send_magic_login_email, send_email_verification
 from src.python.app.core.jwt import (
     create_password_reset_token,
     decode_password_reset_token,
+    decode_email_verification_token,
+    create_email_verification_token,
 )
+from src.python.app.core.dependencies import get_current_user
+from src.python.app.models import User
 from src.python.app.core.security import hash_password, verify_password
-from src.python.app.schemas.auth import ForgotPasswordRequest, LoginRequest, ResetPasswordRequest, MagicLinkRequest, VerifyMagicLinkRequest
-from src.python.app.schemas.user import UserCreate, UserRead
+from src.python.app.schemas import ForgotPasswordRequest, LoginRequest, ResetPasswordRequest, MagicLinkRequest, VerfyLinkRequest,  UserCreate, UserRead
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +47,7 @@ async def request_magic_link(
 
 @router.post("/verify-magic-link")
 async def verify_magic_link(
-    payload: VerifyMagicLinkRequest,
+    payload: VerfyLinkRequest,
     response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -64,8 +67,19 @@ async def register(
     response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> UserRead:
-    if await crud.users.get_user_by_email(db, user_in.email):
-        raise HTTPException(status_code=400, detail="Email already registered")
+    existing = await crud.users.get_user_by_email(db, user_in.email)
+
+    if existing is not None:
+        if existing.hashed_password is not None:
+            raise HTTPException(status_code=400, detail="Email already registered")
+
+        token, jti = create_password_reset_token(existing.email)
+        await crud.users.set_reset_jti(db, existing.id, jti)
+        await db.commit()
+        background_tasks.add_task(
+            send_password_reset_email, existing.email, token, has_password=False
+        )
+        return {"status": "check_email"}
 
     user = await crud.users.create_user(
         db,
@@ -74,16 +88,15 @@ async def register(
         last_name=user_in.last_name,
         hashed_password=hash_password(user_in.password),
     )
-
-    token, jti = create_password_reset_token(user.email)
-    await crud.users.set_reset_jti(db, user.id, jti)
+    token = create_email_verification_token(user.email)
 
     await crud.auth.set_session_cookies(response, db, user.id)
     await db.commit()
     await db.refresh(user)
 
-    background_tasks.add_task(send_password_reset_email, user.email, token, has_password=True)
+    background_tasks.add_task(send_email_verification, user.email, token)
     return user
+    
 
 
 @router.post("/login")
@@ -207,6 +220,21 @@ async def check_reset_token(token: str, db: AsyncSession = Depends(get_db)) -> d
         return {"valid": False}
 
     return {"valid": True, "has_password": user.hashed_password is not None}
+
+
+@router.post("/verify-email")
+async def verify_email(
+    body: VerfyLinkRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user), 
+):
+    email = decode_email_verification_token(body.token) 
+    if current_user.email != email:
+        raise HTTPException(status_code=403, detail="Log in as the account you are verifying")
+    if not current_user.is_verified:
+        current_user.is_verified = True
+        await db.commit()
+    return {"status": "ok"}
 
 
 def _clear_auth_cookies(response: Response) -> None:
