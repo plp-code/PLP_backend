@@ -1,5 +1,6 @@
 from sqlalchemy import func
 import stripe
+import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException, Header, Request, Response
 from sqlalchemy import update
@@ -31,6 +32,30 @@ def _field(obj, key, default=None):
     support `in` and `[]`. This works for both StripeObject and plain dicts.
     """
     return obj[key] if obj is not None and key in obj else default
+
+
+async def _refund_duplicate_purchase(
+    payment_intent_id: str | None, session_id: str, user_id: int, map_id: int
+) -> None:
+    """Refund a charge for a map the user already owns. Never raises."""
+    if not payment_intent_id:
+        logger.error(f"DUPLICATE PURCHASE but no payment_intent, refund manually: session={session_id}")
+        return
+    try:
+        await asyncio.to_thread(
+            stripe.Refund.create,
+            payment_intent=payment_intent_id,
+            reason="duplicate",
+            metadata={
+                "checkout_session_id": session_id,
+                "user_id": str(user_id),
+                "map_id": str(map_id),
+            },
+            idempotency_key=f"duplicate-refund-{session_id}",
+        )
+        logger.info(f"Duplicate purchase refunded: session={session_id} pi={payment_intent_id}")
+    except Exception:
+        logger.exception(f"Auto-refund FAILED, refund manually: session={session_id} pi={payment_intent_id}")
 
 
 @router.post("/create-session")
@@ -94,10 +119,26 @@ async def create_checkout_session(
 
 
 @router.get("/status/{session_id}")
-async def checkout_status(session_id: str, response: Response, db: AsyncSession = Depends(get_db)) -> dict:
+async def checkout_status(
+    session_id: str,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
+) -> dict:
     invoice = await crud.invoices.get_by_session_id(db, session_id)
     if not invoice:
         return {"status": "pending"}
+
+    if invoice.status in ("duplicate", "refunded"):
+        if await crud.purchases.user_owns_map(db, invoice.user_id, invoice.map_id):
+            map_ = await crud.maps.get_map_by_id(db, invoice.map_id)
+            return {
+                "status": "already_owned",
+                "map_slug": map_.slug if map_ else None,
+                "logged_in": current_user is not None and current_user.id == invoice.user_id,
+            }
+        return {"status": invoice.status}
+
     if invoice.status != "paid":
         return {"status": invoice.status}
 
@@ -115,8 +156,11 @@ async def checkout_status(session_id: str, response: Response, db: AsyncSession 
         logger.warning(f"checkout-status: user not found for id={invoice.user_id}")
         raise HTTPException(status_code=404, detail="User not found")
 
-    if user.hashed_password is not None and not user.is_verified:
-        return {"status": "complete", "map_slug": map_.slug, "requires_verification": True}
+    if current_user is not None and current_user.id == user.id:
+        return {"status": "complete", "map_slug": map_.slug}
+
+    if user.hashed_password is not None:
+        return {"status": "complete", "map_slug": map_.slug, "requires_login": True}
 
     result = await db.execute(
         update(Invoice)
@@ -206,57 +250,84 @@ async def stripe_webhook(
             "checkout.session.async_payment_failed": "failed",
         }
 
+        session_id = session_obj["id"]
+        payment_intent_id = _field(session_obj, "payment_intent")
+        user_id_int = int(user_id)
+        map_id_int = int(map_id)
+        final_status = status_map[event_type]
+
         logger.info(
-            f"Creating invoice: user_id={user_id} map_id={map_id} "
-            f"session={session_obj['id']} status={status_map[event_type]}"
+            f"Creating invoice: user_id={user_id_int} map_id={map_id_int} "
+            f"session={session_id} status={final_status}"
         )
 
         try:
             invoice = await crud.invoices.create_invoice(
                 db,
-                user_id=int(user_id),
-                map_id=int(map_id),
-                stripe_checkout_session_id=session_obj["id"],
-                stripe_payment_intent_id=_field(session_obj, "payment_intent"),
+                user_id=user_id_int,
+                map_id=map_id_int,
+                stripe_checkout_session_id=session_id,
+                stripe_payment_intent_id=payment_intent_id,
                 stripe_customer_id=_field(session_obj, "customer"),
                 amount=_field(session_obj, "amount_total", 0),
                 currency=_field(session_obj, "currency", "usd"),
-                status=status_map[event_type],
+                status=final_status,
             )
         except IntegrityError:
             await db.rollback()
-            existing_after_race = await crud.invoices.get_by_session_id(db, session_obj["id"])
+            existing_after_race = await crud.invoices.get_by_session_id(db, session_id)
             if existing_after_race:
-                logger.info(f"Duplicate webhook (confirmed race) ignored: {session_obj['id']}")
+                logger.info(f"Duplicate webhook (confirmed race) ignored: {session_id}")
                 return {"status": "already_processed"}
-            logger.exception(f"create_invoice IntegrityError for a NON-duplicate reason: {session_obj['id']}")
+            logger.exception(f"create_invoice IntegrityError for a NON-duplicate reason: {session_id}")
             raise
 
-        logger.info(f"Invoice created: id={invoice.id} status={status_map[event_type]}")
+        logger.info(f"Invoice created: id={invoice.id} status={final_status}")
+
+        duplicate_purchase = False
 
         if event_type == "checkout.session.completed":
-            await crud.purchases.create_purchase(db, user_id=int(user_id), map_id=int(map_id), invoice_id=invoice.id)
-            logger.info(f"Purchase granted: user={user_id} map={map_id}")
+            try:
+                async with db.begin_nested():
+                    await crud.purchases.create_purchase(
+                        db, user_id=user_id_int, map_id=map_id_int, invoice_id=invoice.id
+                    )
+            except IntegrityError:                
+                if not await crud.purchases.user_owns_map(db, user_id_int, map_id_int):
+                    logger.exception(f"create_purchase IntegrityError for a NON-duplicate reason: {session_id}")
+                    raise
+                duplicate_purchase = True
+                invoice.status = "duplicate" 
+                logger.warning(
+                    f"DUPLICATE PURCHASE: user={user_id_int} map={map_id_int} "
+                    f"invoice={invoice.id} session={session_id}"
+                )
+            else:
+                logger.info(f"Purchase granted: user={user_id_int} map={map_id_int}")
+
+            await crud.waitlist.mark_joined(db, user_id=user_id_int, map_id=map_id_int)
 
             if password_email_args is None:
-                user = await crud.users.get_user_by_id(db, int(user_id))
+                user = await crud.users.get_user_by_id(db, user_id_int)
                 if user and user.hashed_password is None and user.reset_jti is None:
                     token, jti = create_password_reset_token(user.email)
                     await crud.users.set_reset_jti(db, user.id, jti)
                     password_email_args = (user.email, token, False)
 
         await db.commit()
-        logger.info(f"Webhook committed successfully: session={session_obj['id']} status={status_map[event_type]}")
+        logger.info(f"Webhook committed successfully: session={session_id} status={final_status}")
+        
+        if duplicate_purchase:
+            await _refund_duplicate_purchase(payment_intent_id, session_id, user_id_int, map_id_int)
 
         if password_email_args:
             try:
                 await send_password_reset_email(*password_email_args)
-                logger.info(f"Password-set email sent: user={user_id}")
+                logger.info(f"Password-set email sent: user={user_id_int}")
             except Exception:
-                logger.exception(f"Failed to send password-set email: user={user_id}")
+                logger.exception(f"Failed to send password-set email: user={user_id_int}")
 
-        return {"status": status_map[event_type]}
-
+        return {"status": "duplicate_refunded" if duplicate_purchase else final_status}
 
     elif event_type == "refund.created":
         refund_obj = event["data"]["object"]
@@ -273,9 +344,9 @@ async def stripe_webhook(
 
         if purchase:
             await db.delete(purchase)
-            await db.commit()
             logger.info(f"Purchase revoked: user={invoice.user_id} map={invoice.map_id}")
 
+        await db.commit()
         return {"status": "refunded"}
 
     logger.info(f"Unhandled event type: {event_type}")

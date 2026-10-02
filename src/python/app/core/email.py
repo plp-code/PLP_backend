@@ -174,3 +174,38 @@ async def send_magic_login_email(to_email: str, login_token: str) -> None:
         "subject": "Your login link",
         "html": html_content,
     })
+    
+    
+async def send_email_verification(to_email: str, verification_token: str) -> None:
+    """
+    Sends an email verification link using Resend, for accounts that signed up
+    with a password and need to confirm they own the inbox.
+    """
+    verify_link = f"{settings.FRONTEND_URL}/verify-email?token={verification_token}"
+
+    body_html = f"""
+      <p style="font-family:{FONT_STACK}; font-size:15px; line-height:1.6; margin:0 0 8px 0;">
+        Welcome! Confirm your email address to finish setting up your account.
+      </p>
+      {_plp_button(verify_link, "Verify Email")}
+      <p style="font-family:{FONT_STACK}; font-size:13px; color:{COLOR_MAROON_SOFT}; margin:0 0 8px 0;">
+        This link is valid for <strong>24 hours</strong>. You may be asked to log in
+        first so we can confirm the link belongs to your account.
+        If you did not create an account, you can safely ignore this email.
+      </p>
+      {_plp_link_fallback(verify_link)}
+    """
+
+    html_content = _email_shell(
+        preheader="Confirm your email address",
+        title="Verify Your Email",
+        body_html=body_html,
+        footnote=f"{BRAND_NAME} &middot; this link expires in 24 hours",
+    )
+
+    resend.Emails.send({
+        "from": settings.EMAIL_FROM,
+        "to": [to_email],
+        "subject": "Verify your email address",
+        "html": html_content,
+    })

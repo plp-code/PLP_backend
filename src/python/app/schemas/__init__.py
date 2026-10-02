@@ -3,6 +3,11 @@ from src.python.app.schemas.auth import (
     RefreshRequest,
     TokenPair,
     TokenPayload,
+    ForgotPasswordRequest, 
+    ResetPasswordRequest,
+    MagicLinkRequest, 
+    VerfyLinkRequest
+    
 )
 from src.python.app.schemas.clothing_category import (
     CategoriesRead,
@@ -18,6 +23,7 @@ from src.python.app.schemas.location import (
     LocationHoursRead,
     LocationRead,
     LocationUpdate,
+    LocationMinimalRead
 )
 from src.python.app.schemas.map import (
     MapCreate,
@@ -44,6 +50,9 @@ from src.python.app.schemas.user import (
     UserRead,
     UserUpdate,
 )
+from src.python.app.schemas.waitlist import (
+    WaitlistJoinRequest,
+)
 
 __all__ = [
     "LoginRequest",
@@ -55,6 +64,7 @@ __all__ = [
     "InvoiceRead",
     "InvoiceUpdate",
     "LocationCreate",
+    "LocationMinimalRead",
     "LocationHoursCreate",
     "LocationHoursRead",
     "LocationRead",
@@ -74,4 +84,9 @@ __all__ = [
     "UserCreate",
     "UserRead",
     "UserUpdate",
+    "WaitlistJoinRequest"
+    "ForgotPasswordRequest", 
+    "ResetPasswordRequest",
+    "MagicLinkRequest", 
+    "VerfyLinkRequest"
 ]

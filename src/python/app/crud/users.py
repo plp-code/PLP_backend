@@ -36,6 +36,29 @@ async def create_pending_user(db: AsyncSession, email: str) -> User:
     return user
 
 
+def _normalize_email(email: str) -> str:
+    return email.strip().lower()
+
+
+async def get_or_create_pending_user(db: AsyncSession, email: str) -> User:
+    """Resolve an email to a user, creating a passwordless unverified one if needed.
+
+    Does not commit, mint tokens, or produce email args. Safe to call from flows
+    (like waitlist join) that must never trigger a set-password email.
+    """
+    email = _normalize_email(email)
+    user = await get_user_by_email(db, email)
+    if user is None:
+        try:
+            async with db.begin_nested():
+                user = await create_pending_user(db, email)
+        except IntegrityError:
+            user = await get_user_by_email(db, email)
+            if user is None:
+                raise
+    return user
+
+
 async def get_or_create_pending(
     db: AsyncSession, email: str
 ) -> tuple[User, tuple[str, str, bool] | None]:
@@ -46,18 +69,11 @@ async def get_or_create_pending(
     pending account, or for an existing unverified account (a possible squatter),
     so whoever controls the inbox can claim it.
     """
-    user = await get_user_by_email(db, email)
-    if user is None:
-        try:
-            async with db.begin_nested():
-                user = await create_pending_user(db, email)
-        except IntegrityError:
-            user = await get_user_by_email(db, email)
-            if user is None:
-                raise
-    elif user.is_verified:
+    user = await get_or_create_pending_user(db, email)
+    if user.is_verified:
         return user, None
 
+    email = _normalize_email(email)
     token, jti = create_password_reset_token(email)
     await set_reset_jti(db, user.id, jti)
     return user, (email, token, user.hashed_password is not None)
