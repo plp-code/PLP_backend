@@ -1,4 +1,5 @@
 import math
+import re
 import time
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -20,7 +21,23 @@ class RedisRateLimitMiddleware(BaseHTTPMiddleware):
             "/api/v1/checkout/create-session": 5,
             
         }
+        self.pattern_limits: list[tuple[re.Pattern, str, int]] = [
+            (
+                re.compile(r"^/api/v1/maps/[^/]+/join-waitlist$"),
+                "/api/v1/maps/{slug}/join-waitlist",
+                5,
+            ),
+        ]
         self._memory_store: dict[str, tuple[int, float]] = {}
+        
+    def _resolve_limit(self, path: str) -> tuple[str, int]:
+        """Return (bucket, limit). The bucket replaces the raw path in the counter key."""
+        if path in self.custom_limits:
+            return path, self.custom_limits[path]
+        for pattern, bucket, limit in self.pattern_limits:
+            if pattern.match(path):
+                return bucket, limit
+        return path, self.default_limit
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path.rstrip("/") or "/"
@@ -35,7 +52,8 @@ class RedisRateLimitMiddleware(BaseHTTPMiddleware):
             else (request.client.host if request.client else "unknown")
         )
 
-        key = f"rate_limit:{client_ip}:{path}"
+        bucket, limit_for_path = self._resolve_limit(path)
+        key = f"rate_limit:{client_ip}:{bucket}"
         limit_for_path = self.custom_limits.get(path, self.default_limit)
 
         if self.redis_enabled:
@@ -69,6 +87,10 @@ class RedisRateLimitMiddleware(BaseHTTPMiddleware):
         
         current_count = results[0]
         ttl = results[1]
+        
+        if ttl == -1:
+            await redis_client.expire(key, self.window_seconds)
+            ttl = self.window_seconds
 
         if current_count == 1:
             await redis_client.expire(key, self.window_seconds)

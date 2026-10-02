@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
 from src.python.app.models.enums import MapStatus
 from src.python.app import crud
 from src.python.app.core.database import get_db
 from src.python.app.core.dependencies import get_current_user, get_current_user_optional
 from src.python.app.models import User
-from src.python.app.schemas.map import MapListResponse, MapSummary
-from src.python.app.schemas.location import LocationMinimalRead, LocationRead
+from src.python.app.schemas import MapListResponse, MapSummary, LocationMinimalRead, LocationRead, WaitlistJoinRequest
 from src.python.app.models.map import Map
 
 router = APIRouter()
@@ -78,22 +78,37 @@ async def list_maps(
 @router.put("/{slug}/join-waitlist", response_model=dict)
 async def join_waitlist(
     slug: str,
+    body: WaitlistJoinRequest | None = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user_optional),
 ):
-    """Join the waitlist for a map."""
+    """Join the waitlist for a map. Logged-in users use their account; guests supply an email."""
     map_ = await crud.maps.get_map_by_slug(db, slug)
     if not map_:
         raise HTTPException(status_code=404, detail="Map not found")
 
-    existing_entry = await crud.waitlist.get_waitlist_entry(db, current_user.id, map_.id)
-    if existing_entry:
-        raise HTTPException(status_code=400, detail="Already on the waitlist for this map")
+    result = {"message": f"Successfully joined the waitlist for {map_.name}"}
 
-    await crud.waitlist.create_waitlist_entry(db, current_user.id, map_.id)
+    if current_user:
+        if await crud.waitlist.get_waitlist_entry(db, current_user.id, map_.id):
+            raise HTTPException(status_code=400, detail="Already on the waitlist for this map")
+        await crud.waitlist.create_waitlist_entry(db, current_user.id, map_.id)
+        return result
 
-    return {"message": f"Successfully joined the waitlist for {map_.name}"}
+    if not body or not body.email:
+        raise HTTPException(status_code=422, detail="Email is required")
 
+    user = await crud.users.get_or_create_pending_user(db, body.email)
+
+    if not await crud.purchases.user_owns_map(db, user.id, map_.id):
+        try:
+            async with db.begin_nested():
+                await crud.waitlist.create_waitlist_entry(db, user.id, map_.id)
+        except IntegrityError:
+            pass  
+
+    await db.commit()
+    return result
 
 
 @router.get("/{slug}/locations/pins", response_model=list[LocationMinimalRead])
