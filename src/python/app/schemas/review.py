@@ -26,13 +26,13 @@ class ReviewAuthor(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     first_name: str | None = None
-    last_name: str | None = None
+    last_initial: str | None = Field(default=None, validation_alias="last_name")
 
-    @field_validator("last_name")
+    @field_validator("last_initial")
     @classmethod
     def last_initial_only(cls, v: str | None) -> str | None:
         v = (v or "").strip()
-        return f"{v[0].upper()}." if v else None
+        return v[0].upper() if v else None
 
 
 class ReviewRead(ReviewBase):
