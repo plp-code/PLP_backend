@@ -1,5 +1,5 @@
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.python.app.schemas.clothing_category import CategoriesRead
 
@@ -33,6 +33,14 @@ class ReviewAuthor(BaseModel):
     def last_initial_only(cls, v: str | None) -> str | None:
         v = (v or "").strip()
         return v[0].upper() if v else None
+
+    @model_validator(mode="after")
+    def anonymous_if_unnamed(self) -> "ReviewAuthor":
+        # Claimed guest accounts have no names. Never fall back to the email.
+        if not (self.first_name or "").strip() and not self.last_initial:
+            self.first_name = "Anonymous"
+            self.last_initial = None
+        return self
 
 
 class ReviewRead(ReviewBase):

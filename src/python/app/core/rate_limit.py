@@ -5,6 +5,68 @@ from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 from src.python.app.core.redis import get_redis_client
+from src.python.app.core.config import settings
+
+
+# Keyed limits for things the per-IP middleware can't see (an email or a
+# session_id in the request body). Same backend rules as the middleware:
+# Redis when enabled, otherwise per-process memory.
+_key_store: dict[str, tuple[int, float]] = {}
+
+
+def _hit_memory(key: str, limit: int, window_seconds: int) -> bool:
+    now = time.monotonic()
+    if len(_key_store) > 10_000:
+        for k in [k for k, (_, exp) in _key_store.items() if exp <= now]:
+            del _key_store[k]
+    count, expiry = _key_store.get(key, (0, 0.0))
+    if now >= expiry:
+        count, expiry = 0, now + window_seconds
+    if count >= limit:
+        return False
+    _key_store[key] = (count + 1, expiry)
+    return True
+
+
+async def hit_key_limit(key: str, limit: int, window_seconds: int) -> bool:
+    """Count one hit against `key`. Returns True if still within the limit."""
+    full_key = f"rate_limit:key:{key}"
+    if settings.REDIS_ENABLED:
+        try:
+            redis_client = await get_redis_client()
+            pipe = redis_client.pipeline()
+            pipe.incr(full_key)
+            pipe.ttl(full_key)
+            count, ttl = await pipe.execute()
+            if count == 1 or ttl == -1:
+                await redis_client.expire(full_key, window_seconds)
+            return count <= limit
+        except Exception:
+            pass
+    return _hit_memory(full_key, limit, window_seconds)
+
+
+def client_ip(request: Request) -> str:
+    """The client IP as seen by our trusted proxy, never a client-chosen value.
+
+    The leftmost X-Forwarded-For entry is whatever the client sent, so it is
+    never used. Each trusted proxy appends the address it saw, so the client is
+    TRUSTED_PROXY_HOPS entries from the right.
+    """
+    header = settings.TRUSTED_PROXY_IP_HEADER
+    if header:
+        value = (request.headers.get(header) or "").strip()
+        if value:
+            return value
+
+    hops = settings.TRUSTED_PROXY_HOPS
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if hops > 0 and forwarded_for:
+        parts = [p.strip() for p in forwarded_for.split(",") if p.strip()]
+        if len(parts) >= hops:
+            return parts[-hops]
+
+    return request.client.host if request.client else "unknown"
 
 
 class RedisRateLimitMiddleware(BaseHTTPMiddleware):
@@ -19,7 +81,8 @@ class RedisRateLimitMiddleware(BaseHTTPMiddleware):
             "/api/v1/auth/forgot-password": 3,
             "/api/v1/auth/magic-link": 3,
             "/api/v1/checkout/create-session": 5,
-            
+            "/api/v1/checkout/resend-claim": 3,
+
         }
         self.pattern_limits: list[tuple[re.Pattern, str, int]] = [
             (
@@ -45,15 +108,8 @@ class RedisRateLimitMiddleware(BaseHTTPMiddleware):
         if path in {"/docs", "/redoc", "/openapi.json"}:
             return await call_next(request)
 
-        forwarded_for = request.headers.get("x-forwarded-for")
-        client_ip = (
-            forwarded_for.split(",")[0].strip()
-            if forwarded_for
-            else (request.client.host if request.client else "unknown")
-        )
-
         bucket, limit_for_path = self._resolve_limit(path)
-        key = f"rate_limit:{client_ip}:{bucket}"
+        key = f"rate_limit:{client_ip(request)}:{bucket}"
 
         if self.redis_enabled:
             try:

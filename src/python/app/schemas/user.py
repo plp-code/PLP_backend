@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+
+from src.python.app.core.security import MAX_PASSWORD_BYTES, password_too_long
 
 
 class UserBase(BaseModel):
@@ -11,6 +13,13 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str = Field(..., min_length=8, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def password_fits_bcrypt(cls, v: str) -> str:
+        if password_too_long(v):
+            raise ValueError(f"Password must be at most {MAX_PASSWORD_BYTES} bytes")
+        return v
 
 
 class UserUpdate(BaseModel):
@@ -28,5 +37,16 @@ class UserRead(UserBase):
     is_active: bool
     created_at: datetime
     updated_at: datetime
+
+
+class UserMe(UserRead):
+    """/users/me only. has_password drives the frontend's guest banner; the
+    hash itself is never part of any schema."""
+    has_password: bool
+
+    @classmethod
+    def from_user(cls, user) -> "UserMe":
+        base = UserRead.model_validate(user).model_dump()
+        return cls(**base, has_password=user.hashed_password is not None)
 
     

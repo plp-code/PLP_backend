@@ -9,11 +9,20 @@ from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
 from src.python.app.core.config import settings
 
 
-def create_access_token(user_id: int) -> str:
+# Forgot-password links are short-lived; the post-purchase claim link is not,
+# because a guest buyer may not open the email right away. Both share the
+# single-use users.reset_jti slot.
+PASSWORD_RESET_TOKEN_TTL = timedelta(minutes=15)
+CLAIM_TOKEN_TTL = timedelta(hours=24)
+
+
+def create_access_token(user_id: int, expires_delta: timedelta | None = None) -> str:
+    if expires_delta is None:
+        expires_delta = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {
         "sub": str(user_id),
         "type": "access",
-        "exp": datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+        "exp": datetime.now(timezone.utc) + expires_delta,
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
@@ -43,13 +52,15 @@ def decode_email_verification_token(email: str) -> str:
 
 
 
-def create_password_reset_token(email: str) -> tuple[str, str]:
+def create_password_reset_token(
+    email: str, ttl: timedelta = PASSWORD_RESET_TOKEN_TTL
+) -> tuple[str, str]:
     jti = secrets.token_urlsafe(16)
     payload = {
         "sub": email,
         "type": "password_reset",
         "jti": jti,
-        "exp": datetime.now(timezone.utc) + timedelta(minutes=15),
+        "exp": datetime.now(timezone.utc) + ttl,
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM), jti
 
