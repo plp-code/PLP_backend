@@ -11,7 +11,7 @@ from src.python.app.schemas.review import ReviewCreate
 async def get_reviews_by_store_id(db: AsyncSession, location_id: int) -> list[Review]:
     result = await db.execute(
         select(Review)
-        .where(Review.location_id == location_id)
+        .where(Review.location_id == location_id, Review.is_hidden.is_(False))
         .options(
             selectinload(Review.user),
             selectinload(Review.categories),
@@ -33,11 +33,25 @@ async def create_review(
         experience=payload.experience,
         item_purchased=payload.item_purchased,
         price_paid=payload.price_paid,
-        is_hidden=getattr(payload, "is_hidden", False),
         categories=list(categories) if categories else [],
     )
 
     db.add(review)
-    await db.commit()    
-
+    await db.flush()
     return review
+
+
+async def get_user_review(
+    db: AsyncSession, user_id: int, location_id: int, *, eager: bool = False
+) -> Review | None:
+    """The user's own review for a location, hidden or not. eager=True loads user/categories for serialization."""
+    query = select(Review).where(Review.user_id == user_id, Review.location_id == location_id)
+    if eager:
+        query = query.options(selectinload(Review.user), selectinload(Review.categories))
+    result = await db.execute(query)
+    return result.scalar_one_or_none()
+
+
+async def delete_review(db: AsyncSession, review: Review) -> None:
+    await db.delete(review)
+    await db.flush()

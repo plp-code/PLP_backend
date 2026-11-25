@@ -1,12 +1,11 @@
 from src.python.app.schemas.auth import (
     LoginRequest,
     RefreshRequest,
-    TokenPair,
     TokenPayload,
-    ForgotPasswordRequest, 
     ResetPasswordRequest,
     MagicLinkRequest, 
-    VerfyLinkRequest
+    VerfyLinkRequest,
+    ForgotPasswordRequest,
     
 )
 from src.python.app.schemas.clothing_category import (
@@ -40,6 +39,7 @@ from src.python.app.schemas.purchase import (
 from src.python.app.schemas.review import (
     ReviewCreate,
     ReviewListResponse,
+    ReviewMine,
 )
 from src.python.app.schemas.token import (
     TokenCreate,
@@ -56,9 +56,9 @@ from src.python.app.schemas.waitlist import (
 
 __all__ = [
     "LoginRequest",
+    "ForgotPasswordRequest",
     "RefreshRequest",
     "CategoriesRead",
-    "TokenPair",
     "TokenPayload",
     "InvoiceCreate",
     "InvoiceRead",
@@ -79,13 +79,13 @@ __all__ = [
     "PurchaseRead",
     "ReviewListResponse",
     "ReviewCreate",
+    "ReviewMine",
     "TokenCreate",
     "TokenRead",
     "UserCreate",
     "UserRead",
     "UserUpdate",
-    "WaitlistJoinRequest"
-    "ForgotPasswordRequest", 
+    "WaitlistJoinRequest",
     "ResetPasswordRequest",
     "MagicLinkRequest", 
     "VerfyLinkRequest"

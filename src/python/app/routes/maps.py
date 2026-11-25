@@ -1,4 +1,7 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
@@ -6,9 +9,10 @@ from src.python.app.models.enums import MapStatus
 from src.python.app import crud
 from src.python.app.core.database import get_db
 from src.python.app.core.dependencies import get_current_user, get_current_user_optional
-from src.python.app.models import User
+from src.python.app.models import User, Location
 from src.python.app.schemas import MapListResponse, MapSummary, LocationMinimalRead, LocationRead, WaitlistJoinRequest
 from src.python.app.models.map import Map
+
 
 router = APIRouter()
 
@@ -138,13 +142,18 @@ async def get_locations_paginated(
     return [LocationRead.model_validate(loc) for loc in locations]
 
 
+REQUEST_DELAY = 0.3   # seconds between lookups (~3 requests/sec)
+COMMIT_EVERY = 10     # save progress periodically
+
+
 # @router.put("/{slug}/locations/google-place-ids")
 # async def update_google_place_ids(
 #     slug: str,
 #     db: AsyncSession = Depends(get_db),
 #     # x_admin_key: str = Header(...),
 # ):
-#     """Batch update Google Place IDs for all locations in a map."""
+#     """Batch update Google Place IDs for all locations in a map.
+#     """
 #     # if x_admin_key != settings.ADMIN_API_KEY:
 #     #     raise HTTPException(status_code=403, detail="Forbidden")
 
@@ -154,9 +163,19 @@ async def get_locations_paginated(
 
 #     locations = await crud.locations.get_by_map(db, map_.id)
 
-#     updated = 0
-#     skipped = 0
-#     failed = 0
+#     assigned: dict[str, str] = {
+#         pid: name
+#         for pid, name in (
+#             await db.execute(
+#                 select(Location.google_place_id, Location.name)
+#                 .where(Location.google_place_id.is_not(None))
+#             )
+#         ).all()
+#     }
+
+#     updated = skipped = failed = 0
+#     shared: list[dict] = []
+#     failed_names: list[str] = []
 
 #     for location in locations:
 #         if location.google_place_id:
@@ -166,12 +185,30 @@ async def get_locations_paginated(
 #         place_id = await crud.locations.fetch_google_place_id(
 #             location.name, location.latitude, location.longitude,
 #         )
+#         await asyncio.sleep(REQUEST_DELAY)
 
-#         if place_id:
-#             location.google_place_id = place_id
-#             updated += 1
-#         else:
+#         if not place_id:
 #             failed += 1
+#             failed_names.append(location.name)
+#             continue
+
+#         if place_id in assigned:
+#             shared.append({
+#                 "id": location.id,
+#                 "name": location.name,
+#                 "shares_with": assigned[place_id],
+#                 "place_id": place_id,
+#             })
+#         else:
+#             assigned[place_id] = location.name
+
+#         location.google_place_id = place_id
+#         updated += 1
+
+#         if updated % COMMIT_EVERY == 0:
+#             await db.commit()
+
+#     await db.commit()
 
 #     return {
 #         "map": map_.name,
@@ -179,4 +216,6 @@ async def get_locations_paginated(
 #         "updated": updated,
 #         "skipped": skipped,
 #         "failed": failed,
+#         "failed_names": failed_names,
+#         "shared_place_ids": shared,
 #     }

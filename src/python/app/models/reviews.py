@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, false
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, UniqueConstraint, false
 from sqlalchemy.orm import relationship
 
 from src.python.app.core.database import Base
@@ -14,6 +14,10 @@ class Review(TimestampMixin, Base):
     item_purchased = Column(String(100), nullable=False)
     is_hidden = Column(Boolean, nullable=False, default=False, server_default=false())
     price_paid = Column(Integer, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "location_id", name="uq_reviews_user_location"),
+    )
 
     categories = relationship(
         "ClothingCategory",
