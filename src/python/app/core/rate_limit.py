@@ -54,7 +54,6 @@ class RedisRateLimitMiddleware(BaseHTTPMiddleware):
 
         bucket, limit_for_path = self._resolve_limit(path)
         key = f"rate_limit:{client_ip}:{bucket}"
-        limit_for_path = self.custom_limits.get(path, self.default_limit)
 
         if self.redis_enabled:
             try:

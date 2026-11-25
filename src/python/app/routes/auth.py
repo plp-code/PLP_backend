@@ -2,11 +2,12 @@ import logging
 import os
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status, BackgroundTasks
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 import jwt
 from src.python.app import crud
 from src.python.app.core.database import get_db
-from src.python.app.core.email import send_password_reset_email, send_magic_login_email, send_email_verification
+from src.python.app.core.email import send_password_reset_email, send_magic_login_email, send_email_verification, normalize_email
 from src.python.app.core.jwt import (
     create_password_reset_token,
     decode_password_reset_token,
@@ -16,7 +17,7 @@ from src.python.app.core.jwt import (
 from src.python.app.core.dependencies import get_current_user
 from src.python.app.models import User
 from src.python.app.core.security import hash_password, verify_password
-from src.python.app.schemas import ForgotPasswordRequest, LoginRequest, ResetPasswordRequest, MagicLinkRequest, VerfyLinkRequest,  UserCreate, UserRead
+from src.python.app.schemas import LoginRequest, ResetPasswordRequest, MagicLinkRequest, VerfyLinkRequest,  UserCreate, UserRead, ForgotPasswordRequest
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,7 @@ async def register(
     background_tasks: BackgroundTasks,
     response: Response,
     db: AsyncSession = Depends(get_db),
-) -> UserRead:
+) -> UserRead | JSONResponse:
     existing = await crud.users.get_user_by_email(db, user_in.email)
 
     if existing is not None:
@@ -79,7 +80,8 @@ async def register(
         background_tasks.add_task(
             send_password_reset_email, existing.email, token, has_password=False
         )
-        return {"status": "check_email"}
+        return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content={"status": "check_email"})
+
 
     user = await crud.users.create_user(
         db,
@@ -228,8 +230,11 @@ async def verify_email(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user), 
 ):
-    email = decode_email_verification_token(body.token) 
-    if current_user.email != email:
+    try:
+        email = decode_email_verification_token(body.token)
+    except jwt.InvalidTokenError:  # also covers ExpiredSignatureError
+        raise HTTPException(status_code=400, detail="This verification link is invalid or has expired.")
+    if not email or normalize_email(current_user.email) != normalize_email(email):
         raise HTTPException(status_code=403, detail="Log in as the account you are verifying")
     if not current_user.is_verified:
         current_user.is_verified = True

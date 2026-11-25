@@ -55,7 +55,7 @@ async def verify_and_consume_magic_link(db: AsyncSession, token: str) -> User:
     result = await db.execute(
         update(User)
         .where(User.id == user_id, User.magic_link_jti == jti)
-        .values(magic_link_jti=None)
+        .values(magic_link_jti=None, is_verified=True)
     )
     if result.rowcount != 1:
         raise ValueError("This link has already been used or is invalid")

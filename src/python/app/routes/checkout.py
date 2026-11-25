@@ -1,7 +1,7 @@
 from sqlalchemy import func
 import stripe
 import asyncio
-
+from starlette.concurrency import run_in_threadpool
 from fastapi import APIRouter, Depends, HTTPException, Header, Request, Response
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
@@ -10,11 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.python.app import crud
 from src.python.app.core.database import get_db
 from src.python.app.core.config import settings
-from src.python.app.core.jwt import create_password_reset_token
-from src.python.app.core.email import send_password_reset_email
+from src.python.app.core.email import send_password_reset_email, normalize_email
 from src.python.app.core.dependencies import get_current_user_optional
 from src.python.app.models import User
 from src.python.app.models import Invoice
+from src.python.app.models.enums import MapStatus
 
 import logging
 
@@ -35,9 +35,10 @@ def _field(obj, key, default=None):
 
 
 async def _refund_duplicate_purchase(
-    payment_intent_id: str | None, session_id: str, user_id: int, map_id: int
+    payment_intent_id: str | None, session_id: str, user_id: int, map_id: int,
+    reason: str = "duplicate",
 ) -> None:
-    """Refund a charge for a map the user already owns. Never raises."""
+    """Refund a charge we can't fulfil (duplicate map / inactive account). Never raises."""
     if not payment_intent_id:
         logger.error(f"DUPLICATE PURCHASE but no payment_intent, refund manually: session={session_id}")
         return
@@ -45,17 +46,31 @@ async def _refund_duplicate_purchase(
         await asyncio.to_thread(
             stripe.Refund.create,
             payment_intent=payment_intent_id,
-            reason="duplicate",
+            reason=reason,
             metadata={
                 "checkout_session_id": session_id,
                 "user_id": str(user_id),
                 "map_id": str(map_id),
             },
-            idempotency_key=f"duplicate-refund-{session_id}",
+            idempotency_key=f"{reason}-refund-{session_id}",
         )
         logger.info(f"Duplicate purchase refunded: session={session_id} pi={payment_intent_id}")
     except Exception:
         logger.exception(f"Auto-refund FAILED, refund manually: session={session_id} pi={payment_intent_id}")
+
+
+async def _resolve_email(session_obj) -> str | None:
+    details = _field(session_obj, "customer_details", {}) or {}
+    email = _field(details, "email") or _field(session_obj, "customer_email")
+
+    if not email and (cid := _field(session_obj, "customer")):
+        try:
+            customer = await run_in_threadpool(stripe.Customer.retrieve, cid)
+            email = customer.email
+        except stripe.error.StripeError:
+            logger.exception(f"Customer lookup failed: {cid}")
+
+    return normalize_email(email)
 
 
 @router.post("/create-session")
@@ -71,6 +86,10 @@ async def create_checkout_session(
         if not map_:
             logger.warning(f"create-session: map not found for slug={map_slug}")
             raise HTTPException(status_code=404, detail="Map not found")
+
+        if map_.status != MapStatus.LIVE:
+            logger.warning(f"create-session: map_id={map_.id} not purchasable, status={map_.status}")
+            raise HTTPException(status_code=400, detail="This map is not available for purchase")
 
         if current_user and await crud.purchases.user_owns_map(db, current_user.id, map_.id):
             logger.info(f"create-session: user={current_user.id} already owns map={map_.id}")
@@ -232,15 +251,12 @@ async def stripe_webhook(
                 logger.info(f"Ignoring {event_type} for guest session with no prior user: {session_obj['id']}")
                 return {"status": "ignored", "reason": "guest session incomplete"}
 
-            customer_details = _field(session_obj, "customer_details", {})
-            email = _field(customer_details, "email")
-            logger.info(f"Guest checkout detected, customer_details={customer_details!r} resolved_email={email!r}")
-
+            email = await _resolve_email(session_obj)
             if not email:
-                logger.warning(f"Guest checkout with no email: {session_obj['id']}")
+                logger.error(f"PAID GUEST CHECKOUT WITH NO EMAIL, needs manual fix: {session_obj['id']}")
                 return {"status": "ignored", "reason": "no email on guest session"}
 
-            guest_user, password_email_args = await crud.users.get_or_create_pending(db, email)
+            guest_user = await crud.users.get_or_create_pending_user(db, email)
             user_id = guest_user.id
             logger.info(f"Resolved guest email={email} to user_id={user_id}")
 
@@ -285,8 +301,22 @@ async def stripe_webhook(
         logger.info(f"Invoice created: id={invoice.id} status={final_status}")
 
         duplicate_purchase = False
+        inactive_account = False
 
         if event_type == "checkout.session.completed":
+            owner = await crud.users.get_user_by_id(db, user_id_int)
+            if owner is not None and not owner.is_active:
+                # Deactivated accounts can't log in, so granting access would
+                # leave the buyer charged and locked out. Refund instead.
+                inactive_account = True
+                invoice.status = "refunded"
+                invoice.failure_reason = "Account inactive; auto-refunded"
+                logger.warning(
+                    f"PAID CHECKOUT FOR INACTIVE ACCOUNT: user={user_id_int} "
+                    f"map={map_id_int} session={session_id}"
+                )
+
+        if event_type == "checkout.session.completed" and not inactive_account:
             try:
                 async with db.begin_nested():
                     await crud.purchases.create_purchase(
@@ -307,18 +337,20 @@ async def stripe_webhook(
 
             await crud.waitlist.mark_joined(db, user_id=user_id_int, map_id=map_id_int)
 
-            if password_email_args is None:
+            if not duplicate_purchase:
                 user = await crud.users.get_user_by_id(db, user_id_int)
-                if user and user.hashed_password is None and user.reset_jti is None:
-                    token, jti = create_password_reset_token(user.email)
-                    await crud.users.set_reset_jti(db, user.id, jti)
-                    password_email_args = (user.email, token, False)
+                if user:
+                    password_email_args = await crud.users.build_claim_email_args(db, user)
 
         await db.commit()
         logger.info(f"Webhook committed successfully: session={session_id} status={final_status}")
         
         if duplicate_purchase:
             await _refund_duplicate_purchase(payment_intent_id, session_id, user_id_int, map_id_int)
+        elif inactive_account:
+            await _refund_duplicate_purchase(
+                payment_intent_id, session_id, user_id_int, map_id_int, reason="requested_by_customer"
+            )
 
         if password_email_args:
             try:
@@ -327,7 +359,11 @@ async def stripe_webhook(
             except Exception:
                 logger.exception(f"Failed to send password-set email: user={user_id_int}")
 
-        return {"status": "duplicate_refunded" if duplicate_purchase else final_status}
+        if duplicate_purchase:
+            return {"status": "duplicate_refunded"}
+        if inactive_account:
+            return {"status": "inactive_refunded"}
+        return {"status": final_status}
 
     elif event_type == "refund.created":
         refund_obj = event["data"]["object"]

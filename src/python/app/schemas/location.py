@@ -45,7 +45,7 @@ class LocationBase(BaseModel):
     min_price: int | None = Field(default=None, ge=0)
     max_price: int | None = Field(default=None, ge=0)
     price_level: int | None = None
-    description: str | None = Field(default=None, max_length=1024)
+    description: str | None = Field(default=None, max_length=2048)
     google_place_id: str | None = Field(default=None, max_length=255)
     
 
