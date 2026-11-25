@@ -6,21 +6,12 @@ class LoginRequest(BaseModel):
     password: str = Field(..., min_length=1)
     
 
-class TokenPair(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-
-
 class RefreshRequest(BaseModel):
     refresh_token: str
 
 
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
-
-class SetPasswordRequest(BaseModel):
-    new_password: str = Field(..., min_length=8)
 
 
 class ResetPasswordRequest(BaseModel):

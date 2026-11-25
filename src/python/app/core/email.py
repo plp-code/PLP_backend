@@ -17,6 +17,13 @@ COLOR_INK = "#1a1014"
 FONT_STACK = "'Bodoni Moda', 'Prata', Georgia, 'Times New Roman', serif"
 
 
+def normalize_email(email: str | None) -> str | None:
+    if not email:
+        return None
+    email = email.strip().lower()
+    return email or None
+
+
 def _email_shell(preheader: str, title: str, body_html: str, footnote: str) -> str:
     """
     Shared retro 'beveled window' shell so every transactional email matches

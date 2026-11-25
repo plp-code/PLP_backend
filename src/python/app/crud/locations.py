@@ -1,5 +1,7 @@
 import httpx
 import logging
+import asyncio
+import difflib
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -87,38 +89,122 @@ async def delete_location(db: AsyncSession, location: Location) -> None:
     await db.flush()
 
 
+TEXT_URL = "https://places.googleapis.com/v1/places:searchText"
+NEARBY_URL = "https://places.googleapis.com/v1/places:searchNearby"
+MAX_RETRIES = 4  # backoff: 1s, 2s, 4s between attempts
+
+
+def _headers(field_mask: str) -> dict:
+    return {
+        "X-Goog-Api-Key": settings.GOOGLE_PLACES_API_KEY,
+        "X-Goog-FieldMask": field_mask,
+    }
+
+
+def _name_score(a: str, b: str) -> float:
+    return difflib.SequenceMatcher(None, a.lower(), b.lower()).ratio()
+
+
+async def _post(client: httpx.AsyncClient, url: str, field_mask: str, body: dict) -> httpx.Response:
+    """POST with retry on 429. Returns the last response either way."""
+    delay = 1.0
+    for attempt in range(MAX_RETRIES):
+        resp = await client.post(url, headers=_headers(field_mask), json=body)
+        if resp.status_code != 429 or attempt == MAX_RETRIES - 1:
+            return resp
+        logger.warning(f"429 from Google Places, retrying in {delay:.0f}s")
+        await asyncio.sleep(delay)
+        delay *= 2
+    return resp
+
+
+async def _search_text(client: httpx.AsyncClient, name: str, lat: float, lng: float) -> str | None:
+    resp = await _post(
+        client, TEXT_URL, "places.id",
+        {
+            "textQuery": name,
+            "locationBias": {
+                "circle": {
+                    "center": {"latitude": lat, "longitude": lng},
+                    "radius": 500.0,
+                }
+            },
+        },
+    )
+    data = resp.json()
+    logger.info(f"Text search status={resp.status_code} places={len(data.get('places', []))}")
+
+    if resp.status_code != 200:
+        logger.warning(f"Google Places error: {resp.status_code} - {data.get('error', {}).get('message', data)}")
+        return None
+
+    places = data.get("places", [])
+    return places[0]["id"] if places else None
+
+
+async def _search_nearby(
+    client: httpx.AsyncClient,
+    name: str,
+    lat: float,
+    lng: float,
+    radius_m: float = 75.0,
+    min_score: float = 0.45,
+) -> str | None:
+    resp = await _post(
+        client, NEARBY_URL, "places.id,places.displayName",
+        {
+            "maxResultCount": 10,
+            "rankPreference": "DISTANCE",
+            "locationRestriction": {
+                "circle": {
+                    "center": {"latitude": lat, "longitude": lng},
+                    "radius": radius_m,
+                }
+            },
+        },
+    )
+    data = resp.json()
+    logger.info(f"Nearby search status={resp.status_code} places={len(data.get('places', []))}")
+
+    if resp.status_code != 200:
+        logger.warning(f"Google Places nearby error: {resp.status_code} - {data.get('error', {}).get('message', data)}")
+        return None
+
+    places = data.get("places", [])
+    if not places:
+        return None
+
+    scored = [
+        (_name_score(name, p.get("displayName", {}).get("text", "")), p)
+        for p in places
+    ]
+    best_score, best = max(scored, key=lambda t: t[0])
+
+    if best_score >= min_score:
+        logger.info(f"Nearby match '{best['displayName']['text']}' score={best_score:.2f}")
+        return best["id"]
+    if len(places) == 1:
+        return places[0]["id"]
+
+    logger.warning(f"Ambiguous nearby results for '{name}', skipping")
+    return None
+
+
 async def fetch_google_place_id(name: str, lat: float, lng: float) -> str | None:
-    """Fetch Google Place ID using Places API (New) — free for IDs only."""
-    async with httpx.AsyncClient() as client:
-        logger.info(f"Google Places lookup: name='{name}' lat={lat} lng={lng}")
+    """Fetch a Google Place ID: text search first, coordinate search as fallback."""
+    logger.info(f"Google Places lookup: name='{name}' lat={lat} lng={lng}")
 
+    async with httpx.AsyncClient(timeout=15.0) as client:
         try:
-            resp = await client.post(
-                "https://places.googleapis.com/v1/places:searchText",
-                headers={
-                    "X-Goog-Api-Key": settings.GOOGLE_PLACES_API_KEY,
-                    "X-Goog-FieldMask": "places.id",
-                },
-                json={
-                    "textQuery": name,
-                    "locationBias": {
-                        "circle": {
-                            "center": {"latitude": lat, "longitude": lng},
-                            "radius": 500.0,
-                        }
-                    },
-                },
-            )
-            data = resp.json()
-            logger.info(f"Google Places response: status={resp.status_code} places={len(data.get('places', []))}")
+            place_id = await _search_text(client, name, lat, lng)
+            if place_id:
+                logger.info(f"Found place_id (text): {place_id}")
+                return place_id
 
-            if resp.status_code != 200:
-                logger.warning(f"Google Places error: {resp.status_code} - {data.get('error', {}).get('message', data)}")
-                return None
-
-            if data.get("places"):
-                place_id = data["places"][0]["id"]
-                logger.info(f"Found place_id: {place_id}")
+            logger.warning(f"No text results for '{name}', trying coordinates")
+            place_id = await _search_nearby(client, name, lat, lng)
+            if place_id:
+                logger.info(f"Found place_id (nearby): {place_id}")
                 return place_id
 
             logger.warning(f"No results for '{name}'")
