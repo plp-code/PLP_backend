@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+
+from src.python.app.core.security import MAX_PASSWORD_BYTES, password_too_long
 
 
 class UserBase(BaseModel):
@@ -11,6 +13,13 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str = Field(..., min_length=8, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def password_fits_bcrypt(cls, v: str) -> str:
+        if password_too_long(v):
+            raise ValueError(f"Password must be at most {MAX_PASSWORD_BYTES} bytes")
+        return v
 
 
 class UserUpdate(BaseModel):

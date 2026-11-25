@@ -46,6 +46,29 @@ async def hit_key_limit(key: str, limit: int, window_seconds: int) -> bool:
     return _hit_memory(full_key, limit, window_seconds)
 
 
+def client_ip(request: Request) -> str:
+    """The client IP as seen by our trusted proxy, never a client-chosen value.
+
+    The leftmost X-Forwarded-For entry is whatever the client sent, so it is
+    never used. Each trusted proxy appends the address it saw, so the client is
+    TRUSTED_PROXY_HOPS entries from the right.
+    """
+    header = settings.TRUSTED_PROXY_IP_HEADER
+    if header:
+        value = (request.headers.get(header) or "").strip()
+        if value:
+            return value
+
+    hops = settings.TRUSTED_PROXY_HOPS
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if hops > 0 and forwarded_for:
+        parts = [p.strip() for p in forwarded_for.split(",") if p.strip()]
+        if len(parts) >= hops:
+            return parts[-hops]
+
+    return request.client.host if request.client else "unknown"
+
+
 class RedisRateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, default_limit: int = 120, redis_enabled: bool = False) -> None:
         super().__init__(app)
@@ -85,15 +108,8 @@ class RedisRateLimitMiddleware(BaseHTTPMiddleware):
         if path in {"/docs", "/redoc", "/openapi.json"}:
             return await call_next(request)
 
-        forwarded_for = request.headers.get("x-forwarded-for")
-        client_ip = (
-            forwarded_for.split(",")[0].strip()
-            if forwarded_for
-            else (request.client.host if request.client else "unknown")
-        )
-
         bucket, limit_for_path = self._resolve_limit(path)
-        key = f"rate_limit:{client_ip}:{bucket}"
+        key = f"rate_limit:{client_ip(request)}:{bucket}"
 
         if self.redis_enabled:
             try:
