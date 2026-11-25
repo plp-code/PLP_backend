@@ -27,6 +27,14 @@ class Settings(BaseSettings):
     # Rate Limiting
     RATE_LIMIT_ENABLED: bool = True
     RATE_LIMIT_REQUESTS_PER_MINUTE: int = 120
+    # How to find the real client IP behind the proxy.
+    # TRUSTED_PROXY_IP_HEADER: a header the proxy SETS (overwrites), e.g.
+    #   "do-connecting-ip". Used first when present.
+    # TRUSTED_PROXY_HOPS: otherwise, how many trusted proxies APPEND to
+    #   X-Forwarded-For; the client is that many entries from the right.
+    #   0 = ignore X-Forwarded-For and use the socket peer.
+    TRUSTED_PROXY_IP_HEADER: str | None = None
+    TRUSTED_PROXY_HOPS: int = 1
 
     # JWT
     SECRET_KEY: str

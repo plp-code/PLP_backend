@@ -3,9 +3,11 @@ import os
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status, BackgroundTasks
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 import jwt
 from src.python.app import crud
+from src.python.app.core.rate_limit import hit_key_limit
 from src.python.app.core.database import get_db
 from src.python.app.core.email import send_password_reset_email, send_magic_login_email, send_email_verification, normalize_email
 from src.python.app.core.jwt import (
@@ -22,6 +24,9 @@ from src.python.app.schemas import LoginRequest, ResetPasswordRequest, MagicLink
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+LOGIN_PER_EMAIL_LIMIT = 5
+LOGIN_PER_EMAIL_WINDOW = 60
 
     
 async def _send_magic_link_email_safe(email: str, token: str) -> None:
@@ -53,12 +58,14 @@ async def verify_magic_link(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
-        user = await crud.auth.verify_and_consume_magic_link(db, payload.token)
+        user, return_to = await crud.auth.verify_and_consume_magic_link(db, payload.token)
     except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, ValueError):
         raise HTTPException(status_code=400, detail="This link has expired or already been used.")
 
     await crud.auth.set_session_cookies(response, db, user.id)
-    return {"status": "logged_in"}
+    # return_to comes from the signed token and is re-validated server-side;
+    # the frontend should navigate here rather than to the URL's returnTo.
+    return {"status": "logged_in", "return_to": return_to}
 
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
@@ -83,13 +90,18 @@ async def register(
         return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content={"status": "check_email"})
 
 
-    user = await crud.users.create_user(
-        db,
-        email=user_in.email,
-        first_name=user_in.first_name,
-        last_name=user_in.last_name,
-        hashed_password=hash_password(user_in.password),
-    )
+    try:
+        async with db.begin_nested():
+            user = await crud.users.create_user(
+                db,
+                email=user_in.email,
+                first_name=user_in.first_name,
+                last_name=user_in.last_name,
+                hashed_password=hash_password(user_in.password),
+            )
+    except IntegrityError:
+        # A concurrent request created this email between our lookup and insert.
+        return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content={"status": "check_email"})
     token = create_email_verification_token(user.email)
 
     await crud.auth.set_session_cookies(response, db, user.id)
@@ -109,6 +121,20 @@ async def login(
     existing_refresh_token: str | None = Cookie(default=None, alias="refresh_token"),
 ) -> UserRead:
     """Authenticate user and set session cookies."""
+    # Per-email cap on top of the per-IP middleware limit, so rotating IPs
+    # can't brute-force one account. Applies to unknown emails too, so the
+    # 429 reveals nothing about whether the account exists.
+    if not await hit_key_limit(
+        f"login-email:{normalize_email(data.email)}",
+        LOGIN_PER_EMAIL_LIMIT,
+        LOGIN_PER_EMAIL_WINDOW,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+            headers={"Retry-After": str(LOGIN_PER_EMAIL_WINDOW)},
+        )
+
     user = await crud.users.get_user_by_email(db, data.email)
     if not user or not user.hashed_password or not verify_password(data.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")

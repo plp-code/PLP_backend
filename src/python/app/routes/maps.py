@@ -102,7 +102,7 @@ async def join_waitlist(
     if not body or not body.email:
         raise HTTPException(status_code=422, detail="Email is required")
 
-    user = await crud.users.get_or_create_pending_user(db, body.email)
+    user, _ = await crud.users.get_or_create_pending_user(db, body.email)
 
     if not await crud.purchases.user_owns_map(db, user.id, map_.id):
         try:
