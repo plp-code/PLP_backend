@@ -3,11 +3,14 @@ import logging
 import asyncio
 import difflib
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.python.app.models.clothing_categories import ClothingCategory
 from src.python.app.models.location import Location
+from src.python.app.models.review_category import ReviewCategory
+from src.python.app.models.reviews import Review
 from src.python.app.models.location_hours import LocationHours
 from src.python.app.schemas.location import LocationHoursCreate
 from src.python.app.core.config import settings
@@ -26,23 +29,85 @@ async def get_location_by_id(db: AsyncSession, location_id: int) -> Location | N
     return result.scalar_one_or_none()
 
 
-async def get_by_map(db: AsyncSession, map_id: int) -> list[Location]:
-    result = await db.execute(select(Location).where(Location.map_id == map_id))
+def _category_filter(category_slugs: list[str]):
+    """True for locations with at least one visible review tagged with any of the slugs.
+
+    Uses EXISTS (not a join) so a location with several matching reviews isn't duplicated.
+    """
+    return exists().where(
+        Review.location_id == Location.id,
+        Review.is_hidden.is_(False),
+        ReviewCategory.review_id == Review.id,
+        ReviewCategory.category_id == ClothingCategory.id,
+        ClothingCategory.slug.in_(category_slugs),
+    )
+
+
+def _escape_like(term: str) -> str:
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _apply_filters(query, search: str | None, category_slugs: list[str] | None):
+    if search and search.strip():
+        pattern = f"%{_escape_like(search.strip())}%"
+        query = query.where(
+            Location.name.ilike(pattern, escape="\\")
+            | Location.neighborhood.ilike(pattern, escape="\\")
+        )
+    if category_slugs:
+        query = query.where(_category_filter(category_slugs))
+    return query
+
+
+async def resolve_category_filter(
+    db: AsyncSession, map_id: int, category_slugs: list[str]
+) -> tuple[list[str], bool]:
+    """Decide which category slugs to actually filter by.
+
+    Returns (effective_slugs, fell_back). If no location in the map matches the
+    requested categories, the filter is dropped (everything renders) and
+    fell_back is True. Decided per map, not per page, so pagination and pins agree.
+    """
+    if not category_slugs:
+        return [], False
+    matched = await db.scalar(
+        select(
+            exists().where(Location.map_id == map_id, _category_filter(category_slugs))
+        )
+    )
+    if matched:
+        return category_slugs, False
+    return [], True
+
+
+async def get_by_map(
+    db: AsyncSession,
+    map_id: int,
+    search: str | None = None,
+    category_slugs: list[str] | None = None,
+) -> list[Location]:
+    query = select(Location).where(Location.map_id == map_id)
+    query = _apply_filters(query, search, category_slugs)
+    result = await db.execute(query)
     return list(result.scalars().all())
 
 
 async def get_by_map_paginated(
-    db: AsyncSession, map_id: int, offset: int, limit: int
+    db: AsyncSession,
+    map_id: int,
+    offset: int,
+    limit: int,
+    search: str | None = None,
+    category_slugs: list[str] | None = None,
 ) -> list[Location]:
-    """Get locations for a specific map with pagination."""
-    result = await db.execute(
+    """Get locations for a specific map with pagination and optional filters."""
+    query = (
         select(Location)
         .where(Location.map_id == map_id)
-        .options(selectinload(Location.hours))  
-        .order_by(Location.id)
-        .offset(offset)
-        .limit(limit)
+        .options(selectinload(Location.hours))
     )
+    query = _apply_filters(query, search, category_slugs)
+    result = await db.execute(query.order_by(Location.id).offset(offset).limit(limit))
     return list(result.scalars().all())
 
 
