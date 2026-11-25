@@ -98,7 +98,13 @@ def outbox(monkeypatch):
     async def verify_email(to_email, verification_token):
         box.sent.append(SimpleNamespace(kind="verify", to=to_email, token=verification_token))
 
-    monkeypatch.setattr(checkout_routes, "send_password_reset_email", reset_email)
+    async def checkout_link_email(to_email, login_token, map_name, return_to, valid_for):
+        box.sent.append(SimpleNamespace(
+            kind="checkout_magic", to=to_email, token=login_token,
+            map_name=map_name, return_to=return_to, valid_for=valid_for,
+        ))
+
+    monkeypatch.setattr(checkout_routes, "send_checkout_magic_link_email", checkout_link_email)
     monkeypatch.setattr(auth_routes, "send_password_reset_email", reset_email)
     monkeypatch.setattr(auth_routes, "send_magic_login_email", magic_email)
     monkeypatch.setattr(auth_routes, "send_email_verification", verify_email)

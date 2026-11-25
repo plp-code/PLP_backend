@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.python.app import crud
 from src.python.app.core.database import get_db
 from src.python.app.core.config import settings
-from src.python.app.core.email import send_password_reset_email, normalize_email
+from src.python.app.core.email import send_checkout_magic_link_email, normalize_email
 from src.python.app.core.jwt import set_auth_cookie
 from src.python.app.core.rate_limit import hit_key_limit
 from src.python.app.core.dependencies import get_current_user_optional
@@ -81,7 +81,7 @@ async def _resolve_email(session_obj) -> str | None:
 
 CHECKOUT_NONCE_COOKIE = "checkout_nonce"
 CHECKOUT_NONCE_MAX_AGE = 24 * 60 * 60  # Stripe Checkout sessions expire within 24h
-CLAIM_EMAIL_VALID_FOR = "24 hours"     # must match core.jwt.CLAIM_TOKEN_TTL
+CHECKOUT_LINK_VALID_FOR = "60 minutes"  # must match crud.auth.CHECKOUT_MAGIC_LINK_TTL
 
 
 def _hash_nonce(nonce: str) -> str:
@@ -102,11 +102,31 @@ def _mask_email(email: str | None) -> str | None:
     return f"{local[:1]}***@{domain}"
 
 
-async def _send_claim_email_safe(email: str, token: str) -> None:
+async def _build_checkout_link_args(db: AsyncSession, user: User, map_id: int) -> tuple | None:
+    """Issue a 60-minute one-time sign-in link to the bought map, for a
+    passwordless active user. Replaces any earlier magic link. Returns args for
+    _send_checkout_link_safe, or None (user has a password: they log in
+    normally, and nothing is sent). Does not commit."""
+    if user.hashed_password is not None or not user.is_active:
+        return None
+    map_ = await crud.maps.get_map_by_id(db, map_id)
+    if map_ is None:
+        return None
+    return_to = crud.auth.safe_return_path(f"/maps/{map_.slug}")
+    token = await crud.auth.create_magic_link_token(
+        db, user.id, ttl=crud.auth.CHECKOUT_MAGIC_LINK_TTL, return_to=return_to,
+    )
+    return normalize_email(user.email), token, map_.name, return_to
+
+
+async def _send_checkout_link_safe(email: str, token: str, map_name: str, return_to: str) -> None:
     try:
-        await send_password_reset_email(email, token, has_password=False, valid_for=CLAIM_EMAIL_VALID_FOR)
+        await send_checkout_magic_link_email(
+            email, token, map_name=map_name, return_to=return_to, valid_for=CHECKOUT_LINK_VALID_FOR,
+        )
+        logger.info(f"Checkout sign-in email sent: return_to={return_to}")
     except Exception:
-        logger.exception("Failed to send claim email")
+        logger.exception("Failed to send checkout sign-in email")
 
 
 @router.post("/create-session")
@@ -273,11 +293,12 @@ async def resend_claim(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Send a fresh claim (set-password) link for a guest purchase.
+    """Send a fresh one-time sign-in link to the map bought in this session.
 
-    Always 202 with the same body, whether or not anything was sent, so the
-    response reveals nothing about the session or the account. Per-IP limit is
-    in the rate-limit middleware; per-session limit is here (silently skips).
+    Only passwordless users get one; it replaces any earlier link. Always 202
+    with the same body, whether or not anything was sent, so the response
+    reveals nothing about the session or the account. Per-IP limit is in the
+    rate-limit middleware; per-session limit is here (silently skips).
     """
     if await hit_key_limit(
         f"resend-claim:{body.session_id}",
@@ -286,11 +307,11 @@ async def resend_claim(
     ):
         invoice = await crud.invoices.get_by_session_id(db, body.session_id)
         user = await crud.users.get_user_by_id(db, invoice.user_id) if invoice else None
-        if user is not None and user.is_active and user.hashed_password is None:
-            args = await crud.users.build_claim_email_args(db, user)
+        if user is not None:
+            args = await _build_checkout_link_args(db, user, invoice.map_id)
             if args:
                 await db.commit()
-                background_tasks.add_task(_send_claim_email_safe, *args)
+                background_tasks.add_task(_send_checkout_link_safe, *args)
 
     return dict(_RESEND_CLAIM_ACCEPTED)
 
@@ -307,7 +328,8 @@ async def stripe_webhook(
         raise HTTPException(status_code=400, detail="Missing 'stripe-signature' header.")
 
     payload = await request.body()
-
+    s = settings.STRIPE_WEBHOOK_SECRET or ""
+    logger.warning(f"webhook secret loaded: len={len(s)} head={s[:10]!r} tail={s[-4:]!r}")
     try:
         event = stripe.Webhook.construct_event(
             payload=payload,
@@ -346,7 +368,7 @@ async def stripe_webhook(
             logger.info(f"Duplicate webhook ignored (invoice already exists): {session_obj['id']}")
             return {"status": "already_processed"}
 
-        password_email_args = None
+        checkout_link_args = None
         created_user = False
 
         if not user_id:
@@ -445,7 +467,10 @@ async def stripe_webhook(
             if not duplicate_purchase:
                 user = await crud.users.get_user_by_id(db, user_id_int)
                 if user:
-                    password_email_args = await crud.users.build_claim_email_args(db, user)
+                    # One email per purchase: a sign-in link for passwordless
+                    # buyers (also covers auto-logged-in guests: receipt and a
+                    # way back in from another device). Nothing for password users.
+                    checkout_link_args = await _build_checkout_link_args(db, user, map_id_int)
 
         await db.commit()
         logger.info(f"Webhook committed successfully: session={session_id} status={final_status}")
@@ -457,14 +482,8 @@ async def stripe_webhook(
                 payment_intent_id, session_id, user_id_int, map_id_int, reason="requested_by_customer"
             )
 
-        if password_email_args:
-            try:
-                await send_password_reset_email(
-                    *password_email_args, has_password=False, valid_for=CLAIM_EMAIL_VALID_FOR
-                )
-                logger.info(f"Password-set email sent: user={user_id_int}")
-            except Exception:
-                logger.exception(f"Failed to send password-set email: user={user_id_int}")
+        if checkout_link_args:
+            await _send_checkout_link_safe(*checkout_link_args)
 
         if duplicate_purchase:
             return {"status": "duplicate_refunded"}

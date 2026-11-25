@@ -1,3 +1,6 @@
+from html import escape
+from urllib.parse import urlencode
+
 import resend
 from src.python.app.core.config import settings
 
@@ -183,7 +186,53 @@ async def send_magic_login_email(to_email: str, login_token: str) -> None:
         "subject": "Your login link",
         "html": html_content,
     })
-    
+
+
+async def send_checkout_magic_link_email(
+    to_email: str, login_token: str, map_name: str, return_to: str, valid_for: str,
+) -> None:
+    """
+    Post-purchase email for passwordless buyers: a one-time sign-in link that
+    lands on the map they bought. Doubles as a receipt. `return_to` must be a
+    safe relative path; the API re-validates it when the link is consumed.
+    `valid_for` must match the token's TTL.
+    """
+    login_link = (
+        f"{settings.FRONTEND_URL}/magic-login?"
+        + urlencode({"token": login_token, "returnTo": return_to})
+    )
+    forgot_link = f"{settings.FRONTEND_URL}/forgot-password"
+    safe_map_name = escape(map_name)
+
+    body_html = f"""
+      <p style="font-family:{FONT_STACK}; font-size:15px; line-height:1.6; margin:0 0 8px 0;">
+        Thanks for your purchase. <strong>{safe_map_name}</strong> is ready.
+      </p>
+      {_plp_button(login_link, "Open my map")}
+      <p style="font-family:{FONT_STACK}; font-size:13px; color:{COLOR_MAROON_SOFT}; margin:0 0 8px 0;">
+        This link is valid for <strong>{valid_for}</strong> and can only be used once.
+        Didn't buy this? You can ignore this email.
+      </p>
+      <p style="font-family:{FONT_STACK}; font-size:13px; color:{COLOR_MAROON_SOFT}; margin:0;">
+        Want to log in with a password next time? Set one at {forgot_link}.
+      </p>
+      {_plp_link_fallback(login_link)}
+    """
+
+    html_content = _email_shell(
+        preheader=f"{safe_map_name} is ready",
+        title="Your map is ready",
+        body_html=body_html,
+        footnote=f"{BRAND_NAME} &middot; this link expires in {valid_for} and works once",
+    )
+
+    resend.Emails.send({
+        "from": settings.EMAIL_FROM,
+        "to": [to_email],
+        "subject": "Your map is ready",
+        "html": html_content,
+    })
+
     
 async def send_email_verification(to_email: str, verification_token: str) -> None:
     """

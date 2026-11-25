@@ -128,16 +128,22 @@ async def test_existing_email_never_gets_cookies(
     assert "other-map" not in resp.text
     assert (await browser.get(f"{API}/users/me")).status_code == 401
 
-    claim_emails = [m for m in outbox.of_kind("reset") if m.to == email]
     after = await _user(db_session, email)
+    assert outbox.of_kind("reset") == [], "never a set-password email after checkout"
+    assert after.reset_jti == "pre-existing-jti"
     if expect_claim_email:
-        assert len(claim_emails) == 1
-        assert claim_emails[0].has_password is False
-        assert claim_emails[0].valid_for == "24 hours"
-        assert after.reset_jti != "pre-existing-jti"
+        # Passwordless: exactly one email, a 60-minute sign-in link to the map.
+        assert len(outbox.sent) == 1
+        (mail,) = outbox.of_kind("checkout_magic")
+        assert mail.to == email
+        assert mail.return_to == "/maps/test-map"
+        assert mail.map_name == "Test Map"
+        assert mail.valid_for == "60 minutes"
+        assert after.magic_link_jti is not None
     else:
-        assert claim_emails == []
-        assert after.reset_jti == "pre-existing-jti"
+        # Has a password: nothing sent, no jti touched.
+        assert outbox.sent == []
+        assert after.magic_link_jti is None
 
 
 async def test_pending_row_with_no_other_activity_still_not_minted(make_client, fake_stripe, db_session):
@@ -237,9 +243,12 @@ async def test_logged_in_purchase_completes_without_new_cookies(make_client, fak
     assert resp.json() == {"status": "complete", "map_slug": "test-map"}
     assert set_cookie_names(resp) == []
 
-    # Item 2: user has a password, so no claim email and reset_jti untouched.
+    # User has a password: no checkout email of any kind, no jti touched.
     assert outbox.of_kind("reset") == []
-    assert (await _user(db_session, "member@example.com")).reset_jti == "forgot-password-jti"
+    assert outbox.of_kind("checkout_magic") == []
+    after = await _user(db_session, "member@example.com")
+    assert after.reset_jti == "forgot-password-jti"
+    assert after.magic_link_jti is None
 
 
 # ── 2: build_claim_email_args ────────────────────────────────────────────────
@@ -320,13 +329,15 @@ async def test_forgot_password_link_is_still_15_minutes(make_client, db_session,
     assert 14 * 60 < _lifetime(mail.token) <= 15 * 60
 
 
-async def test_claim_link_is_24h_single_use_and_revokes_sessions(make_client, fake_stripe, db_session, outbox):
-    _, _ = await _guest_purchase(make_client, fake_stripe, "claimer@example.com")
-    (mail,) = outbox.of_kind("reset")
-    assert mail.valid_for == "24 hours"
-    assert 23.9 * 3600 < _lifetime(mail.token) <= 24 * 3600
+async def test_claim_token_is_24h_single_use_and_revokes_sessions(make_client, db_session):
+    # build_claim_email_args no longer has a caller after the switch to magic
+    # links; the token mechanism is kept and still tested.
+    async with db_session() as db:
+        user, _ = await crud.users.get_or_create_pending_user(db, "claimer@example.com")
+        _, claim_token = await crud.users.build_claim_email_args(db, user)
+        await db.commit()
+    assert 23.9 * 3600 < _lifetime(claim_token) <= 24 * 3600
 
-    user = await _user(db_session, "claimer@example.com")
     async with db_session() as db:
         await crud.tokens.store_refresh_token(
             db, user_id=user.id, token="stale-refresh",
@@ -335,11 +346,11 @@ async def test_claim_link_is_24h_single_use_and_revokes_sessions(make_client, fa
         await db.commit()
 
     client = make_client()
-    ok = await client.post(f"{API}/auth/reset-password", json={"token": mail.token, "new_password": "brand-new-pass"})
+    ok = await client.post(f"{API}/auth/reset-password", json={"token": claim_token, "new_password": "brand-new-pass"})
     assert ok.status_code == 200
     assert "refresh_token" in set_cookie_names(ok), "refresh token is issued once a password is set"
 
-    again = await make_client().post(f"{API}/auth/reset-password", json={"token": mail.token, "new_password": "another-pass-1"})
+    again = await make_client().post(f"{API}/auth/reset-password", json={"token": claim_token, "new_password": "another-pass-1"})
     assert again.status_code == 400
 
     async with db_session() as db:
@@ -362,8 +373,9 @@ async def test_resend_claim_is_identical_for_every_case(make_client, fake_stripe
     member_checkout = await start_checkout(member, fake_stripe)
     await deliver_webhook(make_client(), member_checkout, "pwholder@example.com")
 
+    (first_mail,) = outbox.of_kind("checkout_magic")
     outbox.sent.clear()
-    before = (await _user(db_session, "pendingbuyer@example.com")).reset_jti
+    reset_before = (await _user(db_session, "pendingbuyer@example.com")).reset_jti
 
     responses = {}
     for label, sid in [
@@ -378,10 +390,18 @@ async def test_resend_claim_is_identical_for_every_case(make_client, fake_stripe
     bodies = {r.content for r in responses.values()}
     assert len(bodies) == 1, bodies
 
-    sent = outbox.of_kind("reset")
+    assert outbox.of_kind("reset") == []
+    sent = outbox.of_kind("checkout_magic")
     assert [m.to for m in sent] == ["pendingbuyer@example.com"]
-    assert sent[0].valid_for == "24 hours"
-    assert (await _user(db_session, "pendingbuyer@example.com")).reset_jti != before
+    assert sent[0].valid_for == "60 minutes"
+    assert (await _user(db_session, "pendingbuyer@example.com")).reset_jti == reset_before
+
+    # The newer link replaces the older one: old fails, new works.
+    old = await make_client().post(f"{API}/auth/verify-magic-link", json={"token": first_mail.token})
+    assert old.status_code == 400
+    new = await make_client().post(f"{API}/auth/verify-magic-link", json={"token": sent[0].token})
+    assert new.status_code == 200
+    assert new.json()["return_to"] == "/maps/test-map"
 
 
 async def test_resend_claim_per_session_limit_is_silent(make_client, fake_stripe, outbox):
@@ -394,7 +414,8 @@ async def test_resend_claim_per_session_limit_is_silent(make_client, fake_stripe
         assert r.status_code == 202
         bodies.add(r.content)
     assert len(bodies) == 1
-    assert len(outbox.of_kind("reset")) == 3  # RESEND_CLAIM_PER_SESSION_LIMIT
+    assert len(outbox.of_kind("checkout_magic")) == 3  # RESEND_CLAIM_PER_SESSION_LIMIT
+    assert outbox.of_kind("reset") == []
 
 
 # ── 4: review author fallback ────────────────────────────────────────────────

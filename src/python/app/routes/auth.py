@@ -58,12 +58,14 @@ async def verify_magic_link(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
-        user = await crud.auth.verify_and_consume_magic_link(db, payload.token)
+        user, return_to = await crud.auth.verify_and_consume_magic_link(db, payload.token)
     except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, ValueError):
         raise HTTPException(status_code=400, detail="This link has expired or already been used.")
 
     await crud.auth.set_session_cookies(response, db, user.id)
-    return {"status": "logged_in"}
+    # return_to comes from the signed token and is re-validated server-side;
+    # the frontend should navigate here rather than to the URL's returnTo.
+    return {"status": "logged_in", "return_to": return_to}
 
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)

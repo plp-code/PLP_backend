@@ -38,4 +38,15 @@ class UserRead(UserBase):
     created_at: datetime
     updated_at: datetime
 
+
+class UserMe(UserRead):
+    """/users/me only. has_password drives the frontend's guest banner; the
+    hash itself is never part of any schema."""
+    has_password: bool
+
+    @classmethod
+    def from_user(cls, user) -> "UserMe":
+        base = UserRead.model_validate(user).model_dump()
+        return cls(**base, has_password=user.hashed_password is not None)
+
     
