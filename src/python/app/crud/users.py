@@ -4,18 +4,23 @@ from sqlalchemy.sql import func
 from sqlalchemy.exc import IntegrityError
 from src.python.app.crud.tokens import revoke_all_user_tokens
 from src.python.app.models.user import User
-from src.python.app.core.jwt import create_password_reset_token
+from src.python.app.core.jwt import create_password_reset_token, CLAIM_TOKEN_TTL
 from src.python.app.core.email import normalize_email
 
 
-async def build_claim_email_args(db: AsyncSession, user: User) -> tuple[str, str, bool] | None:
-    """Issue a fresh claim token if the account is unclaimed. Does not commit."""
-    if user.is_verified:
+async def build_claim_email_args(db: AsyncSession, user: User) -> tuple[str, str] | None:
+    """Issue a fresh 24h claim (set-password) token for a passwordless account.
+
+    Returns (email, token), or None if the user already has a password. In that
+    case reset_jti is left untouched so a pending forgot-password link survives.
+    Does not commit.
+    """
+    if user.hashed_password is not None:
         return None
     email = normalize_email(user.email)
-    token, jti = create_password_reset_token(email)
-    await set_reset_jti(db, user.id, jti)  
-    return email, token, user.hashed_password is not None
+    token, jti = create_password_reset_token(email, ttl=CLAIM_TOKEN_TTL)
+    await set_reset_jti(db, user.id, jti)
+    return email, token
 
 
 async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
@@ -51,8 +56,11 @@ async def create_pending_user(db: AsyncSession, email: str) -> User:
     return user
 
 
-async def get_or_create_pending_user(db: AsyncSession, email: str) -> User:
+async def get_or_create_pending_user(db: AsyncSession, email: str) -> tuple[User, bool]:
     """Resolve an email to a user, creating a passwordless unverified one if needed.
+
+    Returns (user, created). `created` is True only when THIS call inserted the
+    row; if a concurrent request won the insert race it is False.
 
     Does not commit, mint tokens, or produce email args. Safe to call from flows
     (like waitlist join) that must never trigger a set-password email.
@@ -61,15 +69,17 @@ async def get_or_create_pending_user(db: AsyncSession, email: str) -> User:
     if not email:
         raise ValueError("email required")
     user = await get_user_by_email(db, email)
-    if user is None:
-        try:
-            async with db.begin_nested():
-                user = await create_pending_user(db, email)
-        except IntegrityError:
-            user = await get_user_by_email(db, email)
-            if user is None:
-                raise
-    return user
+    if user is not None:
+        return user, False
+    try:
+        async with db.begin_nested():
+            user = await create_pending_user(db, email)
+    except IntegrityError:
+        user = await get_user_by_email(db, email)
+        if user is None:
+            raise
+        return user, False
+    return user, True
 
 
 async def deactivate_user(db: AsyncSession, user: User) -> User:

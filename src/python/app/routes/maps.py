@@ -1,6 +1,6 @@
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
@@ -102,7 +102,7 @@ async def join_waitlist(
     if not body or not body.email:
         raise HTTPException(status_code=422, detail="Email is required")
 
-    user = await crud.users.get_or_create_pending_user(db, body.email)
+    user, _ = await crud.users.get_or_create_pending_user(db, body.email)
 
     if not await crud.purchases.user_owns_map(db, user.id, map_.id):
         try:
@@ -115,30 +115,52 @@ async def join_waitlist(
     return result
 
 
+FALLBACK_HEADER = "X-Category-Fallback"
+
+
 @router.get("/{slug}/locations/pins", response_model=list[LocationMinimalRead])
 async def get_map_pins(
     slug: str,
+    response: Response,
+    search: str | None = Query(default=None, max_length=255),
+    categories: list[str] = Query(default=[], max_length=20),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get minimal location info (pins) for a map the user owns."""
+    """Get minimal location info (pins) for a map the user owns.
+
+    Filters match the paginated list endpoint so pins and list stay in sync.
+    """
     map_ = await get_owned_map(slug, db, current_user)
-    locations = await crud.locations.get_by_map(db, map_.id)
+    slugs, fell_back = await crud.locations.resolve_category_filter(db, map_.id, categories)
+    if fell_back:
+        response.headers[FALLBACK_HEADER] = "true"
+    locations = await crud.locations.get_by_map(
+        db, map_.id, search=search, category_slugs=slugs
+    )
     return [LocationMinimalRead.model_validate(loc) for loc in locations]
 
 
 @router.get("/{slug}/locations", response_model=list[LocationRead])
 async def get_locations_paginated(
     slug: str,
+    response: Response,
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=25, ge=1, le=100),
+    search: str | None = Query(default=None, max_length=255),
+    categories: list[str] = Query(default=[], max_length=20),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Get paginated locations for a map the user owns."""
     map_ = await get_owned_map(slug, db, current_user)
+    slugs, fell_back = await crud.locations.resolve_category_filter(db, map_.id, categories)
+    if fell_back:
+        response.headers[FALLBACK_HEADER] = "true"
     offset = (page - 1) * limit
-    locations = await crud.locations.get_by_map_paginated(db, map_.id, offset, limit)
+    locations = await crud.locations.get_by_map_paginated(
+        db, map_.id, offset, limit, search=search, category_slugs=slugs
+    )
     return [LocationRead.model_validate(loc) for loc in locations]
 
 

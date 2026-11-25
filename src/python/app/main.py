@@ -95,6 +95,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Category-Fallback"],
 )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
