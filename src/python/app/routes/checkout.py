@@ -1,8 +1,12 @@
 from sqlalchemy import func
+import hashlib
+import hmac
+import secrets
 import stripe
 import asyncio
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
-from fastapi import APIRouter, Depends, HTTPException, Header, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, HTTPException, Header, Request, Response
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +15,8 @@ from src.python.app import crud
 from src.python.app.core.database import get_db
 from src.python.app.core.config import settings
 from src.python.app.core.email import send_password_reset_email, normalize_email
+from src.python.app.core.jwt import set_auth_cookie
+from src.python.app.core.rate_limit import hit_key_limit
 from src.python.app.core.dependencies import get_current_user_optional
 from src.python.app.models import User
 from src.python.app.models import Invoice
@@ -73,9 +79,40 @@ async def _resolve_email(session_obj) -> str | None:
     return normalize_email(email)
 
 
+CHECKOUT_NONCE_COOKIE = "checkout_nonce"
+CHECKOUT_NONCE_MAX_AGE = 24 * 60 * 60  # Stripe Checkout sessions expire within 24h
+CLAIM_EMAIL_VALID_FOR = "24 hours"     # must match core.jwt.CLAIM_TOKEN_TTL
+
+
+def _hash_nonce(nonce: str) -> str:
+    return hashlib.sha256(nonce.encode()).hexdigest()
+
+
+def _nonce_matches(nonce: str | None, expected_hash: str | None) -> bool:
+    if not nonce or not expected_hash:
+        return False
+    return hmac.compare_digest(_hash_nonce(nonce), expected_hash)
+
+
+def _mask_email(email: str | None) -> str | None:
+    """j***@gmail.com. Never returns more than the first character of the local part."""
+    if not email or "@" not in email:
+        return None
+    local, _, domain = email.partition("@")
+    return f"{local[:1]}***@{domain}"
+
+
+async def _send_claim_email_safe(email: str, token: str) -> None:
+    try:
+        await send_password_reset_email(email, token, has_password=False, valid_for=CLAIM_EMAIL_VALID_FOR)
+    except Exception:
+        logger.exception("Failed to send claim email")
+
+
 @router.post("/create-session")
 async def create_checkout_session(
     map_slug: str,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(get_current_user_optional)
 ) -> dict:
@@ -98,6 +135,10 @@ async def create_checkout_session(
         price_in_cents = map_.price
         logger.info(f"create-session: creating Stripe session for map_id={map_.id} price_cents={price_in_cents}")
 
+        # Binds any later guest auto-login to this browser. Only the hash leaves
+        # the server (via Stripe metadata); the raw nonce lives in an HttpOnly cookie.
+        checkout_nonce = secrets.token_urlsafe(32)
+
         checkout_session = stripe.checkout.Session.create(
             payment_method_types=['card'],
             customer_email=current_user.email if current_user else None,
@@ -118,13 +159,18 @@ async def create_checkout_session(
             mode='payment',
             metadata={
                 "user_id": str(current_user.id) if current_user else "",
-                "map_id": str(map_.id)
+                "map_id": str(map_.id),
+                "checkout_nonce_hash": _hash_nonce(checkout_nonce),
             },
             success_url=f"{settings.FRONTEND_URL}/checkout/complete?session_id={{CHECKOUT_SESSION_ID}}",
             cancel_url=f"{settings.FRONTEND_URL}/maps?canceled=true",
         )
 
         logger.info(f"create-session: Stripe session created id={checkout_session.id} map_id={map_.id}")
+        set_auth_cookie(
+            response, CHECKOUT_NONCE_COOKIE, checkout_nonce,
+            max_age=CHECKOUT_NONCE_MAX_AGE, path="/api/v1/checkout",
+        )
         return {"checkout_url": checkout_session.url}
 
     except HTTPException:
@@ -143,6 +189,7 @@ async def checkout_status(
     response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(get_current_user_optional),
+    checkout_nonce: str | None = Cookie(default=None, alias=CHECKOUT_NONCE_COOKIE),
 ) -> dict:
     invoice = await crud.invoices.get_by_session_id(db, session_id)
     if not invoice:
@@ -175,22 +222,77 @@ async def checkout_status(
         logger.warning(f"checkout-status: user not found for id={invoice.user_id}")
         raise HTTPException(status_code=404, detail="User not found")
 
+    # Logged-in purchase: the caller already holds a valid session for this user.
     if current_user is not None and current_user.id == user.id:
         return {"status": "complete", "map_slug": map_.slug}
 
-    if user.hashed_password is not None:
-        return {"status": "complete", "map_slug": map_.slug, "requires_login": True}
-
-    result = await db.execute(
-        update(Invoice)
-        .where(Invoice.id == invoice.id, Invoice.session_minted_at.is_(None))
-        .values(session_minted_at=func.now())
+    # Guest auto-login. The email on a guest invoice was typed at Stripe and is
+    # unverified, so a session is only minted when this invoice created a
+    # brand-new, otherwise-empty account AND the poll comes from the browser
+    # that started checkout. Anything else must log in via email.
+    can_mint = (
+        invoice.created_user
+        and user.hashed_password is None
+        and user.is_active
+        and _nonce_matches(checkout_nonce, invoice.checkout_nonce_hash)
+        and not await crud.invoices.user_has_other_activity(db, user.id, invoice.id)
     )
-    if result.rowcount == 1:
-        await crud.auth.set_session_cookies(response, db, invoice.user_id)
-        await db.commit()
+    if can_mint:
+        result = await db.execute(
+            update(Invoice)
+            .where(Invoice.id == invoice.id, Invoice.session_minted_at.is_(None))
+            .values(session_minted_at=func.now())
+        )
+        if result.rowcount == 1:
+            await db.commit()
+            crud.auth.set_guest_session_cookie(response, user.id)
+            return {"status": "complete", "map_slug": map_.slug}
 
-    return {"status": "complete", "map_slug": map_.slug}
+    # The webhook already sent a claim link to passwordless users;
+    # POST /checkout/resend-claim sends a fresh one.
+    return {
+        "status": "complete",
+        "map_slug": map_.slug,
+        "requires_login": True,
+        "email_hint": _mask_email(user.email),
+    }
+
+
+class ResendClaimRequest(BaseModel):
+    session_id: str = Field(..., min_length=1, max_length=255)
+
+
+RESEND_CLAIM_PER_SESSION_LIMIT = 3
+RESEND_CLAIM_PER_SESSION_WINDOW = 15 * 60
+_RESEND_CLAIM_ACCEPTED = {"status": "accepted"}
+
+
+@router.post("/resend-claim", status_code=202)
+async def resend_claim(
+    body: ResendClaimRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Send a fresh claim (set-password) link for a guest purchase.
+
+    Always 202 with the same body, whether or not anything was sent, so the
+    response reveals nothing about the session or the account. Per-IP limit is
+    in the rate-limit middleware; per-session limit is here (silently skips).
+    """
+    if await hit_key_limit(
+        f"resend-claim:{body.session_id}",
+        RESEND_CLAIM_PER_SESSION_LIMIT,
+        RESEND_CLAIM_PER_SESSION_WINDOW,
+    ):
+        invoice = await crud.invoices.get_by_session_id(db, body.session_id)
+        user = await crud.users.get_user_by_id(db, invoice.user_id) if invoice else None
+        if user is not None and user.is_active and user.hashed_password is None:
+            args = await crud.users.build_claim_email_args(db, user)
+            if args:
+                await db.commit()
+                background_tasks.add_task(_send_claim_email_safe, *args)
+
+    return dict(_RESEND_CLAIM_ACCEPTED)
 
 
 @router.post("/webhook")
@@ -245,6 +347,7 @@ async def stripe_webhook(
             return {"status": "already_processed"}
 
         password_email_args = None
+        created_user = False
 
         if not user_id:
             if event_type != "checkout.session.completed":
@@ -256,9 +359,9 @@ async def stripe_webhook(
                 logger.error(f"PAID GUEST CHECKOUT WITH NO EMAIL, needs manual fix: {session_obj['id']}")
                 return {"status": "ignored", "reason": "no email on guest session"}
 
-            guest_user = await crud.users.get_or_create_pending_user(db, email)
+            guest_user, created_user = await crud.users.get_or_create_pending_user(db, email)
             user_id = guest_user.id
-            logger.info(f"Resolved guest email={email} to user_id={user_id}")
+            logger.info(f"Resolved guest email={email} to user_id={user_id} created={created_user}")
 
         status_map = {
             "checkout.session.completed": "paid",
@@ -288,6 +391,8 @@ async def stripe_webhook(
                 amount=_field(session_obj, "amount_total", 0),
                 currency=_field(session_obj, "currency", "usd"),
                 status=final_status,
+                created_user=created_user,
+                checkout_nonce_hash=_field(metadata, "checkout_nonce_hash") or None,
             )
         except IntegrityError:
             await db.rollback()
@@ -354,7 +459,9 @@ async def stripe_webhook(
 
         if password_email_args:
             try:
-                await send_password_reset_email(*password_email_args)
+                await send_password_reset_email(
+                    *password_email_args, has_password=False, valid_for=CLAIM_EMAIL_VALID_FOR
+                )
                 logger.info(f"Password-set email sent: user={user_id_int}")
             except Exception:
                 logger.exception(f"Failed to send password-set email: user={user_id_int}")

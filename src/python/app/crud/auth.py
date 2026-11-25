@@ -24,7 +24,21 @@ async def set_session_cookies(response: Response, db: AsyncSession, user_id: int
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60)
     set_auth_cookie(response, "refresh_token", f"Bearer {refresh_token}",
         max_age=7 * 24 * 60 * 60, path="/api/v1/auth")
-    
+
+
+GUEST_ACCESS_TTL = timedelta(hours=24)
+
+
+def set_guest_session_cookie(response: Response, user_id: int) -> None:
+    """Access-only session for a passwordless guest buyer: 24h, no refresh token.
+
+    A refresh token is only issued once the user sets a password (reset-password
+    calls set_session_cookies).
+    """
+    access_token = create_access_token(user_id, expires_delta=GUEST_ACCESS_TTL)
+    set_auth_cookie(response, "access_token", f"Bearer {access_token}",
+        max_age=int(GUEST_ACCESS_TTL.total_seconds()))
+
     
 async def create_magic_link_token(db: AsyncSession, user_id: int) -> str:
     jti = secrets.token_urlsafe(16)

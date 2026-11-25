@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, Index, Integer, String, UniqueConstraint, DateTime
+from sqlalchemy import Boolean, Column, ForeignKey, Index, Integer, String, UniqueConstraint, DateTime, false
 from sqlalchemy.orm import relationship
 
 from src.python.app.core.database import Base
@@ -18,6 +18,12 @@ class Invoice(TimestampMixin, Base):
     currency = Column(String(3), nullable=False, default="usd", server_default="usd")
     status = Column(String(50), nullable=False, default="pending", server_default="pending")
     session_minted_at = Column(DateTime(timezone=True), nullable=True)
+    # True only when the webhook for THIS invoice inserted the user row (guest
+    # checkout with a brand-new email). Gates guest auto-login.
+    created_user = Column(Boolean, nullable=False, default=False, server_default=false())
+    # SHA-256 hex of the checkout_nonce cookie set at create-session, carried
+    # through Stripe metadata. Binds auto-login to the buying browser.
+    checkout_nonce_hash = Column(String(64), nullable=True)
     failure_reason = Column(String(500), nullable=True)
 
     purchases = relationship("Purchase", back_populates="invoice")

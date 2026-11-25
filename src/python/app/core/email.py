@@ -106,11 +106,13 @@ def _plp_link_fallback(href: str) -> str:
     """
 
 
-async def send_password_reset_email(to_email: str, reset_token: str, has_password: bool) -> None:
+async def send_password_reset_email(
+    to_email: str, reset_token: str, has_password: bool, valid_for: str = "15 minutes"
+) -> None:
     """
     Sends a password set/reset email using Resend. Same mechanism whether
     the account has no password yet (post-purchase guest) or already has
-    one and is resetting it.
+    one and is resetting it. `valid_for` must match the token's TTL.
     """
     reset_link = f"{settings.FRONTEND_URL}/reset-password?token={reset_token}"
 
@@ -129,7 +131,7 @@ async def send_password_reset_email(to_email: str, reset_token: str, has_passwor
       </p>
       {_plp_button(reset_link, title)}
       <p style="font-family:{FONT_STACK}; font-size:13px; color:{COLOR_MAROON_SOFT}; margin:0;">
-        This link is valid for <strong>15 minutes</strong>. If you did not request this, you can safely ignore it.
+        This link is valid for <strong>{valid_for}</strong>. If you did not request this, you can safely ignore it.
       </p>
       {_plp_link_fallback(reset_link)}
     """
@@ -138,7 +140,7 @@ async def send_password_reset_email(to_email: str, reset_token: str, has_passwor
         preheader=title,
         title=title,
         body_html=body_html,
-        footnote=f"{BRAND_NAME} &middot; this link expires in 15 minutes",
+        footnote=f"{BRAND_NAME} &middot; this link expires in {valid_for}",
     )
 
     resend.Emails.send({
