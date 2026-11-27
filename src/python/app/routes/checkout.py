@@ -329,7 +329,6 @@ async def stripe_webhook(
 
     payload = await request.body()
     s = settings.STRIPE_WEBHOOK_SECRET or ""
-    logger.warning(f"webhook secret loaded: len={len(s)} head={s[:10]!r} tail={s[-4:]!r}")
     try:
         event = stripe.Webhook.construct_event(
             payload=payload,
@@ -383,7 +382,7 @@ async def stripe_webhook(
 
             guest_user, created_user = await crud.users.get_or_create_pending_user(db, email)
             user_id = guest_user.id
-            logger.info(f"Resolved guest email={email} to user_id={user_id} created={created_user}")
+            logger.info(f"Resolved guest email={_mask_email(email)} to user_id={user_id} created={created_user}")
 
         status_map = {
             "checkout.session.completed": "paid",
